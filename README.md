@@ -41,3 +41,16 @@ browser's `localStorage` (use **History → Export** to back it up).
 | Dumbbell  | 2 kg                 |
 | Machine   | 3 kg or 4 kg (chosen per exercise) |
 | Barbell   | 2.5 kg               |
+
+## Food data
+
+`food-data/` is rebuilt every Monday by the **Update food data** GitHub Action
+(`.github/workflows/food-data.yml`, also runnable by hand from the Actions tab):
+
+- `uk-products.json` — the ~30,000 most-scanned UK products with nutrition data
+  from the [Open Food Facts](https://world.openfoodfacts.org) export (ODbL).
+- `uk-cofid.json` — McCance and Widdowson's Composition of Foods Integrated
+  Dataset from gov.uk (Open Government Licence).
+
+The app searches these files offline and falls back to the live Open Food Facts
+search when a product isn't included.

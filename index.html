@@ -1630,7 +1630,57 @@ let scanner = null;
 const foodById = (id) => UK_BY_ID[id] || state.food.foods[id] || null;
 const dayEntries = (date) => state.food.log[date] || [];
 const unitsFor = (food) => [{ label: 'g', g: 1 }, ...(food.portions || [])];
-const srcLabel = { uk: 'UK basics (typical values)', off: 'Open Food Facts', custom: 'My food' };
+const srcLabel = { uk: 'UK basics (typical values)', off: 'Open Food Facts', cofid: 'UK government data (CoFID)', custom: 'My food' };
+
+// ----- Offline food data (food-data/, rebuilt weekly by a GitHub Action) -----
+const foodData = { products: null, cofid: null, productIndex: null, cofidIndex: null, byCode: null, promise: null };
+
+function loadFoodData() {
+  if (foodData.promise) return foodData.promise;
+  const get = (file) => fetch(`food-data/${file}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  foodData.promise = Promise.all([get('uk-products.json'), get('uk-cofid.json')]).then(([products, cofid]) => {
+    if (products?.rows) {
+      foodData.products = products;
+      foodData.productIndex = products.rows.map((r) => `${r[1]} ${r[2]}`.toLowerCase());
+      foodData.byCode = new Map(products.rows.map((r, i) => [r[0], i]));
+    }
+    if (cofid?.rows) {
+      foodData.cofid = cofid;
+      foodData.cofidIndex = cofid.rows.map((r) => r[1].toLowerCase());
+    }
+    if (modal?.type === 'food') refreshFoodResults();
+  });
+  return foodData.promise;
+}
+
+const productFood = (r) => ({
+  id: `off:${r[0]}`, src: 'off', code: r[0], name: r[1], brand: r[2],
+  n: { kcal: r[3], protein: r[4], carbs: r[5], sugar: r[6], fat: r[7], satfat: r[8], fibre: r[9], salt: r[10] },
+  portions: r[11] > 0 ? [{ label: '1 serving', g: r[11] }] : [],
+});
+const cofidFood = (r) => ({
+  id: `cofid:${r[0]}`, src: 'cofid', name: r[1], brand: '',
+  n: { kcal: r[2], protein: r[3], carbs: r[4], sugar: r[5], fat: r[6], satfat: r[7], fibre: r[8], salt: r[9] },
+  portions: [],
+});
+
+function offlineFood(id) {
+  const [, src, code] = id.match(/^([a-z]+):(.*)$/) || [];
+  if (src === 'off' && foodData.byCode?.has(code)) return productFood(foodData.products.rows[foodData.byCode.get(code)]);
+  const row = src === 'cofid' && foodData.cofid?.rows.find((r) => r[0] === code);
+  return row ? cofidFood(row) : null;
+}
+
+/** Search a prebuilt lowercase index; earlier rows (more popular) win ties. */
+function searchIndex(index, rows, q, limit, toFood) {
+  const words = q.split(/\s+/).filter(Boolean);
+  const hits = [];
+  for (let i = 0; i < index.length && hits.length < 300; i++) {
+    if (words.every((w) => index[i].includes(w))) hits.push(i);
+  }
+  const starts = (i) => (index[i].startsWith(words[0]) ? 0 : 1);
+  return hits.sort((a, b) => starts(a) - starts(b) || a - b).slice(0, limit).map((i) => toFood(rows[i]));
+}
 
 /** Nutrients for a given weight of a food (per-100 g values scaled). */
 function scaleN(n, grams) {
@@ -1692,7 +1742,9 @@ function foodView() {
   </section>`;
 
   html += MEALS.map(mealCard).join('');
-  html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>`;
+  html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>
+  <p class="mt-4 text-center text-[11px] leading-relaxed muted">Product data © <a class="underline" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> contributors (ODbL).
+  UK reference data: McCance and Widdowson’s Composition of Foods Integrated Dataset, Office for Health Improvement and Disparities (Open Government Licence).</p>`;
   return html;
 }
 
@@ -1836,7 +1888,15 @@ function foodResults() {
     offHtml = `${off.q === q && off.state === 'error' ? `<p class="mt-3 text-sm text-rose-600 dark:text-rose-400">The food database is busy (it limits how often you can search). Wait a minute and try again, or scan the barcode instead.</p><p class="mt-1 text-xs muted">Details: ${esc(off.reason || '')}</p>` : ''}
       <button class="btn-ghost mt-3 w-full py-2.5 text-sm" data-food="off-search">Search UK shops &amp; brands for “${esc(modal.query.trim())}”</button>`;
   }
-  return listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, 15)) + offHtml;
+  let local = '';
+  if (foodData.products) {
+    const items = searchIndex(foodData.productIndex, foodData.products.rows, q, 25, productFood);
+    local += items.length ? listSection('UK shops &amp; brands', items) : '<p class="mt-3 text-sm muted">No UK products match. Try fewer words, search online, or scan the barcode.</p>';
+    if (!(off.q === q && off.state === 'done')) offHtml = offHtml.replace(/Search UK shops &amp; brands for/, 'Not here? Search online for');
+    else offHtml = offHtml.replace('UK shops &amp; brands', 'More from Open Food Facts (online)');
+  }
+  if (foodData.cofid) local += listSection('UK government data', searchIndex(foodData.cofidIndex, foodData.cofid.rows, q, 10, cofidFood));
+  return listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, foodData.products ? 6 : 15)) + local + offHtml;
 }
 
 function refreshFoodResults() {
@@ -2112,6 +2172,9 @@ async function lookupBarcode(raw) {
   if (!code) return;
   const known = Object.values(state.food.foods).find((f) => f.code === code);
   if (known) return openAmount(known);
+  await loadFoodData();
+  const local = foodData.byCode?.get(code) ?? foodData.byCode?.get(code.padStart(13, '0'));
+  if (local !== undefined && modal?.type === 'food') return openAmount(productFood(foodData.products.rows[local]));
   setScanStatus(`Looking up ${code}…`);
   try {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`);
@@ -2129,6 +2192,7 @@ async function lookupBarcode(raw) {
 function openFoodModal(meal) {
   modal = { type: 'food', step: 'search', meal, date: foodDate, query: '', off: { q: '', state: 'idle', items: [] } };
   renderModal();
+  loadFoodData();
 }
 
 function saveFoodEntry() {
@@ -2201,7 +2265,7 @@ document.addEventListener('click', (e) => {
     case 'off-search': offSearch(); return;
     case 'pick': {
       const id = b.dataset.id;
-      const food = foodById(id) || modal.off.items.find((x) => x.id === id);
+      const food = foodById(id) || modal.off.items.find((x) => x.id === id) || offlineFood(id);
       if (food) openAmount(food);
       return;
     }

@@ -1,0 +1,53 @@
+name: Update food data
+
+# Weekly refresh of the app's offline food search data (food-data/).
+on:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency: food-data
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install openpyxl==3.1.5
+
+      - name: UK products (Open Food Facts)
+        shell: bash
+        run: |
+          curl -sSfL --retry 3 -A 'OverloadTracker-food-data/1.0' \
+            https://static.openfoodfacts.org/data/en.openfoodfacts.org.products.csv.gz \
+            | gunzip | python scripts/build_food_data.py off
+
+      - name: UK reference foods (CoFID)
+        continue-on-error: true
+        run: python scripts/build_food_data.py cofid
+
+      - name: Commit updated data
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add food-data
+          if git diff --cached --quiet; then echo 'No changes'; exit 0; fi
+          git commit -m 'Update food data'
+          git push
+
+      - name: Rebuild GitHub Pages
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
