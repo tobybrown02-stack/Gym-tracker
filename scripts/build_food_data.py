@@ -131,13 +131,17 @@ def build_cofid():
                 if row is None:
                     break
                 seen.append([norm(c) for c in row[:4]])
-                if any(norm(c) in ('food code', 'foodcode', 'code') for c in row):
+                if any(norm(c) in ('food code', 'foodcode', 'code', 'food name') for c in row):
                     header = [norm(c) for c in row]
                     break
             if not header:
                 print(f'sheet {ws.title!r}: skipped, no "Food Code" header in first rows: {seen[:3]}')
                 continue
-            ci = {'code': next(i for i, h in enumerate(header) if h in ('food code', 'foodcode', 'code'))}
+            # Some sheets leave the "Food Code" heading blank; the codes sit just before "Food Name".
+            code_col = next((i for i, h in enumerate(header) if h in ('food code', 'foodcode', 'code')), None)
+            if code_col is None:
+                code_col = max(0, header.index('food name') - 1)
+            ci = {'code': code_col}
             if 'food name' in header:
                 ci['name'] = header.index('food name')
             for field, match in matchers:
