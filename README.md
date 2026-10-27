@@ -4,7 +4,10 @@ A single-file, mobile-first workout tracker that automatically calculates the
 weight and reps for your next session using the **double progression** method.
 
 Open `index.html` in any modern browser — no build step. Data is stored in the
-browser's `localStorage` (use **History → Export** to back it up).
+browser's `localStorage`; use **History → Back up** to save a copy (iPhone share
+sheet → iCloud Drive / Files) and **Restore** to load one. Add it to your Home
+Screen for a full-screen app that works offline (`sw.js`, `manifest.webmanifest`)
+and isn't subject to Safari clearing site data after 7 days without a visit.
 
 ## Features
 

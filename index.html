@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#020617">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Overload">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
   <title>Overload Tracker</title>
   <script>
     // Apply the saved theme before first paint (dark by default).
@@ -603,7 +608,7 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke=
 function render() {
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
-  document.getElementById('view').innerHTML = views[view]();
+  document.getElementById('view').innerHTML = (view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
   if (view === 'exercises') syncMachineToggle();
   if (view === 'stats') attachCharts();
   renderModal();
@@ -1262,8 +1267,8 @@ function historyView() {
   let html = `<div class="mb-4 flex items-center justify-between gap-2">
     <h2 class="text-2xl font-bold">History</h2>
     <div class="flex gap-2">
-      <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Export</button>
-      <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Import</button>
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Back up</button>
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Restore</button>
     </div>
   </div>`;
 
@@ -1311,6 +1316,7 @@ function historyView() {
         ${[20, 15, 10, 7.5].map((w) => `<option value="${w}" ${state.settings.barWeight === w ? 'selected' : ''}>${w} kg</option>`).join('')}
       </select>
     </label>
+    ${dataSafetyHtml()}
     <button class="btn-danger w-full" data-action="reset">Erase all data</button>
   </section>`;
   return html;
@@ -2767,14 +2773,112 @@ function finishWorkout() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function exportData() {
+// ---------- Data safety: backups, storage, Home Screen ----------------------
+const BACKUP_EVERY_DAYS = 7;
+const isStandalone = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// "Remind me later" is a per-device convenience, so it lives outside the app data.
+function snoozed(key) {
+  try { return Date.now() < (JSON.parse(localStorage.getItem('pot.snooze') || '{}')[key] || 0); } catch (err) { return false; }
+}
+function snooze(key, days) {
+  try {
+    const s = JSON.parse(localStorage.getItem('pot.snooze') || '{}');
+    s[key] = Date.now() + days * 864e5;
+    localStorage.setItem('pot.snooze', JSON.stringify(s));
+  } catch (err) { /* ignore */ }
+}
+
+const hasData = () => state.history.length > 0 || Object.keys(state.food.log).length > 0;
+const daysSinceBackup = () => (state.settings.lastBackup ? daysBetween(state.settings.lastBackup, todayISO()) : Infinity);
+
+function noticesHtml() {
+  let html = '';
+  if (isIOS() && !isStandalone() && !snoozed('install')) {
+    html += `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+      <p class="font-semibold">Add the app to your Home Screen</p>
+      <p class="mt-1 text-sm muted">It opens full-screen, works without signal, and iPhone won’t clear your data if you skip a week. In Safari tap <b>Share</b> <span aria-hidden="true">⬆︎</span> then <b>Add to Home Screen</b>.</p>
+      ${hasData() ? `<p class="mt-2 text-sm">The Home Screen app keeps its own storage, so <b>back up here first</b>, then open the new icon and tap <b>Restore</b>.</p>
+      <button class="btn-primary mt-2 px-3 py-2 text-sm" data-action="export">Back up first</button>` : ''}
+      <button class="link mt-2 block" data-action="snooze" data-key="install" data-days="14">Remind me later</button>
+    </section>`;
+  }
+  if (isStandalone() && !hasData() && !snoozed('restore')) {
+    html += `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+      <p class="font-semibold">Moving over from Safari?</p>
+      <p class="mt-1 text-sm muted">Restore the backup you saved to bring your workouts and food log across.</p>
+      <div class="mt-2 flex items-center gap-4">
+        <button class="btn-primary px-3 py-2 text-sm" data-action="import">Restore a backup</button>
+        <button class="link" data-action="snooze" data-key="restore" data-days="3650">I’m starting fresh</button>
+      </div>
+    </section>`;
+  }
+  if (hasData() && daysSinceBackup() >= BACKUP_EVERY_DAYS && !snoozed('backup')) {
+    const d = daysSinceBackup();
+    html += `<section class="card mb-4 flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <p class="font-semibold">Time for a backup</p>
+        <p class="text-sm muted">${d === Infinity ? 'You haven’t backed up yet.' : `Last backup ${d} days ago.`} Save a copy to iCloud Drive or Files.</p>
+      </div>
+      <div class="flex shrink-0 flex-col gap-1">
+        <button class="btn-primary px-3 py-2 text-sm" data-action="export">Back up</button>
+        <button class="link text-xs" data-action="snooze" data-key="backup" data-days="3">Later</button>
+      </div>
+    </section>`;
+  }
+  return html;
+}
+
+/** Characters this app keeps in the browser's local storage. */
+function storageUsed() {
+  let chars = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      chars += k.length + (localStorage.getItem(k) || '').length;
+    }
+  } catch (err) { /* ignore */ }
+  return chars;
+}
+
+function dataSafetyHtml() {
+  const bytes = storageUsed() * 2; // stored as UTF-16
+  const limit = 5 * 1024 * 1024;
+  const pct = Math.min(100, (bytes / limit) * 100);
+  const d = daysSinceBackup();
+  return `<div class="rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
+    <div class="flex items-baseline justify-between text-sm"><span class="font-medium">Data stored on this phone</span><span class="tabular-nums">${bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1048576).toFixed(1)} MB`} <span class="muted">of ~5 MB</span></span></div>
+    <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"><div class="h-full rounded-full ${pct > 70 ? 'bg-amber-500' : 'bg-indigo-500'}" style="width:${Math.max(1, pct)}%"></div></div>
+    <p class="mt-1.5 text-xs ${pct > 70 ? 'text-amber-700 dark:text-amber-400' : 'muted'}">${pct > 70 ? 'Getting full. Back up now and keep the file safe.' : 'Safari allows each site about 5 MB.'} ${d === Infinity ? 'Not backed up yet.' : `Last backup: ${d === 0 ? 'today' : `${d} day${d === 1 ? '' : 's'} ago`}.`}</p>
+    ${isStandalone() ? '' : '<p class="mt-1 text-xs muted">Tip: add the app to your Home Screen so iPhone never clears your data.</p>'}
+  </div>`;
+}
+
+/** Save a backup file, via the iPhone share sheet (iCloud Drive, Files…) where available. */
+async function exportData() {
   const { draft, ...data } = state;
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `overload-tracker-${todayISO()}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const json = JSON.stringify({ ...data, settings: { ...data.settings, lastBackup: todayISO() } }, null, 2);
+  const name = `overload-tracker-backup-${todayISO()}.json`;
+  const file = new File([json], name, { type: 'application/json' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Overload Tracker backup' });
+    } catch (err) {
+      if (err.name === 'AbortError') return; // cancelled
+      throw err;
+    }
+  } else {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  state.settings.lastBackup = todayISO();
+  saveState();
+  render();
+  toast('Backup saved');
 }
 
 document.getElementById('import-file').addEventListener('change', async (e) => {
@@ -2945,7 +3049,8 @@ document.addEventListener('click', (e) => {
     case 'delete-session':
       if (!confirm('Delete this logged session? Future targets will be recalculated.')) return;
       state.history = state.history.filter((h) => h.id !== id); break;
-    case 'export': return exportData();
+    case 'export': exportData().catch(() => toast('Couldn’t save the backup. Try again.')); return;
+    case 'snooze': snooze(btn.dataset.key, Number(btn.dataset.days)); render(); return;
     case 'import': document.getElementById('import-file').click(); return;
     case 'reset':
       if (!confirm('Erase ALL exercises, routines, schedule and history from this browser? This cannot be undone.')) return;
@@ -3067,6 +3172,10 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 render();
 checkForUpdate();
+navigator.storage?.persist?.().catch(() => {});
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
