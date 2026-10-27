@@ -726,12 +726,28 @@ function lastLine(p) {
   return `<p class="mt-2 text-xs muted">Last (${fmtShort(p.last.date)}): ${sets}${extra ? `<br>${extra}` : ''}</p>`;
 }
 
+/**
+ * Warm-up ramp and plates for the weight actually being lifted: the heaviest
+ * weight typed into the set rows, else the (deload) target.
+ */
+function warmupHtml(entry, ex, p, stall) {
+  if (!entry.showWarmup) return '';
+  const typed = entry.sets.map((s) => parseFloat(s.weight)).filter((w) => w > 0);
+  const workWeight = typed.length ? round2(Math.max(...typed)) : entry.deload && stall ? stall.weight : p.weight;
+  const warm = warmupsFor(ex, workWeight);
+  return `<div class="mt-2 space-y-1 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
+      ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
+        : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
+      <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${fmt(workWeight)} kg</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
+      ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar.</p>` : ''}
+    </div>`;
+}
+
 function entryCard(entry, i) {
   const ex = exById(entry.exerciseId);
   if (!ex) return '';
   const p = predict(ex);
   const stall = plateau(ex);
-  const workWeight = entry.deload && stall ? stall.weight : p.weight;
   const rpeOptions = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
 
   let stallHtml = '';
@@ -747,14 +763,6 @@ function entryCard(entry, i) {
       <button class="link shrink-0" data-action="undo-deload" data-e="${i}">Undo</button>
     </div>`;
   }
-
-  const warm = warmupsFor(ex, workWeight);
-  const warmHtml = entry.showWarmup ? `<div class="mt-2 space-y-1 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
-      ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
-        : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
-      <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${fmt(workWeight)} kg</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
-      ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar.</p>` : ''}
-    </div>` : '';
 
   return `<article class="card mb-4" data-entry="${i}">
     <div class="flex items-start justify-between gap-2">
@@ -778,7 +786,7 @@ function entryCard(entry, i) {
     ${stallHtml}
 
     <button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>
-    ${warmHtml}
+    <div id="warm-${i}">${warmupHtml(entry, ex, p, stall)}</div>
 
     <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
       <span class="text-center">Set</span><span class="text-center">kg</span><span class="text-center">Reps</span><span></span><span></span>
@@ -1682,7 +1690,9 @@ document.addEventListener('input', (e) => {
     saveState();
     const ex = exById(entry.exerciseId);
     document.getElementById(`row-${ei}-${si}`).classList.toggle('done', parseInt(entry.sets[si].reps, 10) > 0);
-    document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, predict(ex));
+    const p = predict(ex);
+    document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, p);
+    if (el.dataset.field === 'weight') document.getElementById(`warm-${ei}`).innerHTML = warmupHtml(entry, ex, p, plateau(ex));
   } else if (el.dataset.entryField) {
     state.draft.entries[Number(el.dataset.e)][el.dataset.entryField] = el.value;
     saveState();
