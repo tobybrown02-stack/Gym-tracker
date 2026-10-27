@@ -348,7 +348,7 @@ function sessionsFor(exId) {
  * Rule 2: otherwise keep the weight and beat last session's rep total by ≥ 1.
  */
 function predict(ex) {
-  const last = sessionsFor(ex.id)[0];
+  const last = sessionsFor(ex.id).find((h) => !h.pdl); // programme deload weeks don't count
   const step = stepFor(ex);
 
   if (!last) {
@@ -395,13 +395,13 @@ function predict(ex) {
 /**
  * Plateau: the last 3 sessions each failed to progress on the one before
  * (no heavier weight, and no extra reps at the same weight). A logged deload
- * resets the count.
+ * (or a programme deload week) resets the count.
  */
 function plateau(ex) {
   const ss = sessionsFor(ex.id);
   if (ss.length < 4) return null;
   for (let i = 0; i < 3; i++) {
-    if (ss[i].deload) return null;
+    if (ss[i].deload || ss[i].pdl) return null;
     const a = evaluate(ex, ss[i].sets), b = evaluate(ex, ss[i + 1].sets);
     if (harder(ex, a.top, b.top) || (a.top === b.top && a.total > b.total)) return null;
   }
@@ -493,6 +493,8 @@ function seedState() {
     settings: { barWeight: 20 },
     food: emptyFood(),
     body: { measures: {} },
+    programme: null,
+    pastProgrammes: [],
     draft: null,
   };
 }
@@ -512,7 +514,9 @@ function migrate(d) {
     settings: { barWeight: 20, ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     body: { measures: {}, ...(d.body || {}) },
-    draft: d.draft ? { routineId: null, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
+    programme: d.programme ? { checkins: [], goalKg: null, ...d.programme } : null,
+    pastProgrammes: d.pastProgrammes || [],
+    draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
   };
 }
 
@@ -569,15 +573,15 @@ function dayStatus(date) {
 
 // ---------- Draft workout ------------------------------------------------
 function ensureDraft() {
-  if (!state.draft) state.draft = { date: todayISO(), routineId: null, entries: [], startedAt: Date.now() };
+  if (!state.draft) state.draft = { date: todayISO(), routineId: null, entries: [], startedAt: Date.now(), pdl: isDeloadWeek(todayISO()) };
   return state.draft;
 }
 
 function addEntry(exId) {
   const ex = exById(exId);
   if (!ex) return;
-  const p = predict(ex);
-  ensureDraft().entries.push({
+  const p = targetFor(ex, ensureDraft().pdl);
+  state.draft.entries.push({
     exerciseId: exId,
     sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })),
     note: '', rpe: '', deload: false, showWarmup: false,
@@ -587,7 +591,7 @@ function addEntry(exId) {
 function startRoutine(id, date = todayISO()) {
   const r = routineById(id);
   if (!r) return;
-  state.draft = { date, routineId: id, entries: [], startedAt: Date.now() };
+  state.draft = { date, routineId: id, entries: [], startedAt: Date.now(), pdl: isDeloadWeek(date) };
   r.exerciseIds.forEach(addEntry);
   state.draft.entries.forEach((en) => (en.ss = !!r.links?.[en.exerciseId]));
   view = 'today';
@@ -646,6 +650,7 @@ const RULE_BADGE = {
   start: ['First session', 'bg-sky-500/15 text-sky-700 dark:text-sky-300'],
   up:    ['Weight up',     'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'],
   reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
+  deload: ['Deload week', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
 };
 
 function badge(rule) {
@@ -710,6 +715,8 @@ function todayView() {
   let html = `<section class="mb-4">${weekStrip(weekStart(today))}
     <div class="mt-2 flex justify-end"><button class="link text-xs" data-action="open-plates">Plate calculator</button></div>
   </section>`;
+  html += progBanner(active ? d.date : today);
+  const dl = active ? d.pdl : isDeloadWeek(today);
 
   if (!active) {
     const r = plannedRoutine(today);
@@ -724,7 +731,7 @@ function todayView() {
       html += `<h2 class="mt-1 text-2xl font-bold">${esc(r.name)}</h2>
         <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
           ${r.exerciseIds.map(exById).filter(Boolean).map((ex) => {
-            const p = predict(ex);
+            const p = targetFor(ex, dl);
             return `<li class="flex items-center justify-between gap-3 py-2">
               <span class="min-w-0 truncate font-medium">${esc(ex.name)}</span>
               <span class="shrink-0 text-right font-bold tabular-nums">${loadLabel(ex, p.weight)} <span class="font-medium muted">× ${p.reps.join('/')}</span></span>
@@ -750,10 +757,13 @@ function todayView() {
     html += `<section class="mb-4 flex items-end justify-between gap-3">
       <div class="min-w-0">
         <h2 class="truncate text-2xl font-bold">${r ? esc(r.name) : 'Today’s workout'}</h2>
-        <p class="text-sm muted">Targets come from your last session${d.startedAt ? ` · <span id="workout-clock" class="font-semibold">${clockText(d)}</span>` : ''}</p>
+        <p class="text-sm muted">${d.pdl ? 'Deload targets' : 'Targets come from your last session'}${d.startedAt ? ` · <span id="workout-clock" class="font-semibold">${clockText(d)}</span>` : ''}</p>
       </div>
       <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
     </section>`;
+    if (d.pdl || isDeloadWeek(d.date)) {
+      html += `<p class="-mt-2 mb-4 text-right"><button class="link text-xs" data-action="toggle-pdl">${d.pdl ? 'Train normally today instead' : 'Use deload targets'}</button></p>`;
+    }
     html += d.entries.map((entry, i) => entryCard(entry, i)).join('');
   }
 
@@ -768,7 +778,7 @@ function todayView() {
       <div class="mt-3 space-y-2">
         ${remaining.length > 1 ? `<button class="link" data-action="add-all">Add all ${remaining.length}</button>` : ''}
         ${remaining.map((ex) => {
-          const p = predict(ex);
+          const p = targetFor(ex, dl);
           return `<button class="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left transition hover:border-indigo-400 active:scale-[0.99] dark:border-slate-800" data-action="add-entry" data-id="${ex.id}">
             <span class="min-w-0">
               <span class="block truncate font-medium">${esc(ex.name)}</span>
@@ -827,8 +837,8 @@ function warmupHtml(entry, ex, p, stall) {
 function entryCard(entry, i) {
   const ex = exById(entry.exerciseId);
   if (!ex) return '';
-  const p = predict(ex);
-  const stall = plateau(ex);
+  const p = targetFor(ex);
+  const stall = p.rule === 'deload' ? null : plateau(ex);
   const rpeOptions = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
 
   let stallHtml = '';
@@ -917,7 +927,7 @@ function sparkSvg(vals) {
 
 /** Small trend line of the last few sessions: est. 1RM, or best-set reps for bodyweight. */
 function sparkHtml(ex) {
-  const ss = sessionsFor(ex.id).slice(0, 8).reverse();
+  const ss = sessionsFor(ex.id).filter((h) => !h.pdl).slice(0, 8).reverse();
   if (ss.length < 2) return '';
   const bw = isBW(ex);
   const vals = ss.map((h) => (bw ? Math.max(...evaluate(ex, h.sets).reps) : round1(bestE1(h.sets))));
@@ -952,6 +962,7 @@ function progressHtml(entry, ex, p) {
   const sets = cleanSets(entry.sets, p.weight);
   if (!sets.length) return `<span class="muted">Goal: <b class="text-slate-900 dark:text-slate-100">${p.total}</b> reps</span>`;
   const ev = evaluate(ex, sets);
+  if (p.rule === 'deload') return `<span class="muted">@ ${loadLabel(ex, ev.top)}: </span><b class="tabular-nums">${ev.total}</b><span class="muted"> reps · easy</span>`;
   if (ev.hitCeiling) {
     return `<span class="font-semibold text-emerald-700 dark:text-emerald-400">Ceiling hit → +${fmt(stepFor(ex))} kg next</span>`;
   }
@@ -961,6 +972,271 @@ function progressHtml(entry, ex, p) {
   return `<span class="muted">@ ${loadLabel(ex, ev.top)}: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total} reps</span>` : '<span class="muted"> reps</span>'}`;
 }
 
+// ----- 12-week programme -----
+// Runs on top of the routines and weekly schedule: it only decides how hard
+// each week is (build, deload, push) and when to check in.
+const PROG_WEEKS = 12;
+const PROG_CHECKS = [4, 8, 12]; // check-ins at the end of these weeks (plus one at the start)
+const PHASES = {
+  build:  { name: 'Build', block: 'Block 1', weeks: [1, 5], cell: 'bg-indigo-500', tip: 'Leave 1–2 reps in the tank on every working set. Beat last time by a rep or a weight step; the targets do the maths.' },
+  deload: { name: 'Deload', block: 'Recovery', weeks: [6, 6], cell: 'bg-amber-500', tip: 'Same weights as last time, about half the sets, and stop with 3–4 reps left. Fatigue drops and you start the next block fresh. Targets won’t go up this week.' },
+  push:   { name: 'Push', block: 'Block 2', weeks: [7, 11], cell: 'bg-violet-500', tip: 'Take the last set of each exercise to 0–1 reps left, with strict form. Earlier sets: 1–2 reps in the tank.' },
+  final:  { name: 'Deload & review', block: 'Recovery', weeks: [12, 12], cell: 'bg-amber-500', tip: 'Easy week like week 6 (same weights, half the sets, 3–4 reps left), then do your final check-in.' },
+};
+const FEEL = [['great', 'Strong, recovering well'], ['ok', 'Fine'], ['beaten', 'Run down or achy']];
+
+const phaseKey = (w) => (w <= 5 ? 'build' : w === 6 ? 'deload' : w <= 11 ? 'push' : 'final');
+const progEnd = () => addDays(state.programme.start, PROG_WEEKS * 7 - 1);
+const checkinDate = (w) => addDays(state.programme.start, w * 7 - 1); // Sunday at the end of week w
+const progCheckin = (w) => state.programme?.checkins.find((c) => c.week === w);
+
+/** Programme week (1–12) a date falls in, or null outside the programme. */
+function progWeek(date) {
+  const p = state.programme;
+  if (!p || date < p.start) return null;
+  const w = Math.floor(daysBetween(p.start, date) / 7) + 1;
+  return w <= PROG_WEEKS ? w : null;
+}
+
+const isDeloadWeek = (date) => [6, 12].includes(progWeek(date));
+
+/** Today's target: the normal progression, or an easy deload-week version of it. */
+function targetFor(ex, deload = !!state.draft?.pdl) {
+  const p = predict(ex);
+  if (!deload) return p;
+  const weight = p.ev ? p.ev.top : p.weight; // last session's working load, no increase
+  const n = Math.max(1, Math.ceil(ex.sets / 2));
+  const reps = Array(n).fill(ex.repMin);
+  return {
+    rule: 'deload', weight, reps, total: sum(reps), last: p.last,
+    reason: `Deload week: ${n} easy set${n === 1 ? '' : 's'} at last time’s ${loadLabel(ex, weight)}, stopping with 3–4 reps left. Back to beating your numbers next week.`,
+  };
+}
+
+/** The check-in that's due now (latest first), if it hasn't been done. */
+function dueCheckin() {
+  if (!state.programme) return null;
+  const today = todayISO();
+  return [...PROG_CHECKS].reverse().find((w) => checkinDate(w) <= today && !progCheckin(w)) ?? null;
+}
+
+/** Smoothed weight on (or just before) a date, falling back to a typed weight. */
+function trendAt(date, fallback) {
+  const pts = weightSeries().filter((x) => x.date <= date);
+  return pts.length ? pts[pts.length - 1].trend : fallback;
+}
+
+const programmeLifts = () => [...new Set(state.routines.flatMap((r) => r.exerciseIds))].map(exById).filter(Boolean);
+
+/** Strength change for one exercise: the last session before `from` against the latest by `to`. */
+function liftChange(ex, from, to) {
+  const ss = sessionsFor(ex.id).filter((h) => !h.pdl);
+  const inside = ss.filter((h) => h.date >= from && h.date <= to);
+  const base = ss.find((h) => h.date < from) || inside[inside.length - 1];
+  const now = inside[0];
+  if (!base || !now || base === now) return null;
+  if (isBW(ex)) {
+    const a = evaluate(ex, base.sets), b = evaluate(ex, now.sets);
+    const best = (ev) => Math.max(...ev.reps);
+    const dir = harder(ex, b.top, a.top) ? 1 : harder(ex, a.top, b.top) ? -1 : Math.sign(b.total - a.total);
+    const txt = (ev) => (repsOnly(ex) ? `${best(ev)} reps` : `${loadLabel(ex, ev.top)} × ${best(ev)}`);
+    return { ex, dir, pct: 0, text: `${txt(a)} → ${txt(b)}` };
+  }
+  const a = bestE1(base.sets), b = bestE1(now.sets);
+  if (!a) return null;
+  const pct = (b - a) / a;
+  return { ex, dir: pct > 0.01 ? 1 : pct < -0.01 ? -1 : 0, pct, text: `${fmt(round1(a))} → ${fmt(round1(b))} kg est. 1RM` };
+}
+
+function strengthChanges(to) {
+  return programmeLifts().map((ex) => liftChange(ex, state.programme.start, to)).filter(Boolean);
+}
+
+/** Small banner on the Workout tab: which week it is and how hard to train. */
+function progBanner(date) {
+  const w = progWeek(date);
+  if (!w) return '';
+  const k = phaseKey(w), ph = PHASES[k], easy = k === 'deload' || k === 'final';
+  return `<button class="mb-4 block w-full rounded-2xl border p-3 text-left ${easy ? 'border-amber-500/40 bg-amber-500/10' : 'border-indigo-500/30 bg-indigo-500/10'}" data-action="nav" data-view="plan">
+    <p class="text-xs font-bold uppercase tracking-wider ${easy ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-600 dark:text-indigo-300'}">Week ${w} of ${PROG_WEEKS} · ${ph.block === 'Recovery' ? ph.name : `${ph.block} · ${ph.name}`}</p>
+    <p class="mt-0.5 text-sm text-slate-700 dark:text-slate-300">${ph.tip}</p>
+  </button>`;
+}
+
+function programmeCard() {
+  const p = state.programme, today = todayISO();
+  if (!p) {
+    return `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">12-week programme</p>
+      <h3 class="mt-1 text-lg font-bold">Train in blocks, with planned deloads</h3>
+      <p class="mt-1 text-sm muted">Uses your routines and weekly schedule as they are. Weeks 1–5 build, week 6 is an easy deload, weeks 7–11 push harder, week 12 is a deload and review. Check-ins at the start and after weeks 4, 8 and 12 track weight, waist and strength.</p>
+      <button class="btn-primary mt-3 w-full" data-action="prog-setup">Set up programme</button>
+    </section>`;
+  }
+  const w = progWeek(today), done = today > progEnd();
+  const shown = w || (done ? PROG_WEEKS + 1 : 0);
+  const cells = Array.from({ length: PROG_WEEKS }, (_, i) => {
+    const n = i + 1, k = phaseKey(n);
+    return `<div class="relative">
+      <div class="flex h-7 items-center justify-center rounded-md text-[11px] font-bold text-white ${PHASES[k].cell} ${n < shown ? 'opacity-90' : n === shown ? 'ring-2 ring-slate-900 ring-offset-1 ring-offset-white dark:ring-white dark:ring-offset-slate-900' : 'opacity-35'}">${n}</div>
+      ${PROG_CHECKS.includes(n) ? `<p class="mt-0.5 text-center text-[10px] leading-3 ${progCheckin(n) ? 'text-emerald-600 dark:text-emerald-400' : 'muted'}">${progCheckin(n) ? '✓' : '●'}</p>` : ''}
+    </div>`;
+  }).join('');
+
+  let head;
+  if (w) {
+    const k = phaseKey(w), ph = PHASES[k];
+    const inBlock = ph.weeks[1] > ph.weeks[0] ? ` · week ${w - ph.weeks[0] + 1} of ${ph.weeks[1] - ph.weeks[0] + 1}` : '';
+    head = `<h3 class="mt-1 text-xl font-bold">Week ${w} of ${PROG_WEEKS} · ${ph.name}</h3>
+      <p class="text-sm muted">${ph.block}${inBlock}</p>`;
+  } else if (done) {
+    head = `<h3 class="mt-1 text-xl font-bold">Programme complete 🎉</h3><p class="text-sm muted">${fmtShort(p.start)} – ${fmtShort(progEnd())}</p>`;
+  } else {
+    head = `<h3 class="mt-1 text-xl font-bold">Starts ${fmtDay(p.start)}</h3><p class="text-sm muted">Week 1 is a build week.</p>`;
+  }
+
+  const ws = weekStart(today);
+  const planned = DAYS.filter((_, i) => plannedRoutine(addDays(ws, i))).length;
+  const trained = new Set(state.history.filter((h) => h.date >= ws && h.date <= addDays(ws, 6)).map((h) => h.date)).size;
+  const base = progCheckin(0);
+  const nowKg = trendAt(today, base?.weight);
+  const goal = p.goalKg;
+  const pct = base && goal && base.weight > goal ? Math.max(0, Math.min(100, ((base.weight - nowKg) / (base.weight - goal)) * 100)) : null;
+  const due = dueCheckin();
+  const next = PROG_CHECKS.find((n) => !progCheckin(n) && checkinDate(n) > today);
+
+  return `<section class="card mb-4">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">12-week programme</p>
+      <button class="link text-xs" data-action="prog-end">${done ? 'Close' : 'End early'}</button>
+    </div>
+    ${head}
+    <div class="mt-3 grid grid-cols-12 gap-1">${cells}</div>
+    <p class="mt-1 flex flex-wrap gap-x-3 text-[11px] muted"><span><span class="inline-block h-2 w-2 rounded-sm bg-indigo-500"></span> Build</span><span><span class="inline-block h-2 w-2 rounded-sm bg-amber-500"></span> Deload</span><span><span class="inline-block h-2 w-2 rounded-sm bg-violet-500"></span> Push</span><span>● check-in</span></p>
+    ${w ? `<p class="mt-3 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">${PHASES[phaseKey(w)].tip}</p>
+      <p class="mt-2 text-sm"><span class="muted">This week:</span> <b>${trained}</b><span class="muted"> of ${planned} planned session${planned === 1 ? '' : 's'} done</span></p>` : ''}
+    ${pct !== null ? `<div class="mt-3">
+      <div class="flex justify-between text-xs"><span class="muted">${fmt(base.weight)} kg start</span><b class="tabular-nums">${fmt(round1(nowKg))} kg now</b><span class="muted">goal ${fmt(goal)} kg</span></div>
+      <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full bg-emerald-500" style="width:${Math.max(1, pct)}%"></div></div>
+    </div>` : ''}
+    ${due ? `<button class="btn-primary mt-3 w-full" data-action="prog-checkin" data-week="${due}">Do your week ${due} check-in</button>`
+      : next ? `<p class="mt-3 text-sm muted">Next check-in: <b class="text-slate-900 dark:text-slate-100">end of week ${next}</b> (${fmtDay(checkinDate(next))})</p>` : ''}
+    ${p.checkins.length ? `<div class="mt-3 flex flex-wrap gap-2">${p.checkins.map((c) => `<button class="chip" data-action="prog-review" data-week="${c.week}">${c.week ? `Week ${c.week}` : 'Start'} · ${fmtShort(c.date)}</button>`).join('')}</div>` : ''}
+    ${done && !due ? `<button class="btn-primary mt-3 w-full" data-action="prog-setup">Start the next 12 weeks</button>` : ''}
+  </section>`;
+}
+
+function progSetupModal() {
+  const ws = weekStart(todayISO());
+  const latest = Object.keys(state.food.weights).sort().pop();
+  const kg = latest ? state.food.weights[latest] : state.food.profile?.weight ?? '';
+  const goal = state.programme?.goalKg ?? state.pastProgrammes[state.pastProgrammes.length - 1]?.goalKg ?? '';
+  const days = DAYS.map((d, i) => [d, plannedRoutine(addDays(ws, 7 + i)) || routineById(state.schedule.weekly[i])]).filter(([, r]) => r);
+  const waist = measureSeries('waist').pop()?.v ?? '';
+  return `${modalHead('12-week programme')}
+    <form id="prog-form" class="space-y-3">
+      <div class="rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
+        <p class="font-semibold">Your routines stay as they are</p>
+        <p class="mt-1 muted">${days.length ? days.map(([d, r]) => `${d} ${esc(r.name)}`).join(' · ') : 'No weekly schedule yet: set your days in the Plan tab first.'}</p>
+        <ul class="mt-2 space-y-0.5">
+          <li><b>Weeks 1–5 · Build:</b> 1–2 reps in the tank</li>
+          <li><b>Week 6 · Deload:</b> same weights, half the sets</li>
+          <li><b>Weeks 7–11 · Push:</b> last set of each exercise near failure</li>
+          <li><b>Week 12 · Deload &amp; review</b></li>
+          <li><b>Check-ins:</b> today, then after weeks 4, 8 and 12</li>
+        </ul>
+      </div>
+      <label class="block"><span class="label">Week 1 starts</span>
+        <select class="input" name="start">${[0, 1, 2].map((n) => `<option value="${addDays(ws, 7 * n)}">${n === 0 ? 'This week' : n === 1 ? 'Next week' : 'In 2 weeks'} · Mon ${fmtShort(addDays(ws, 7 * n))}</option>`).join('')}</select></label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block"><span class="label">Weight now (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="weight" value="${kg}" required></label>
+        <label class="block"><span class="label">Goal weight (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="goal" value="${goal}" placeholder="optional"></label>
+      </div>
+      <label class="block"><span class="label">Waist (cm, optional)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="0" name="waist" value="${waist}" placeholder="round the belly button"></label>
+      <p class="text-xs muted">Take front, side and back photos today in the same light. They stay in your Photos app; compare them at each check-in.</p>
+      <button type="submit" class="btn-primary w-full">Start programme</button>
+    </form>`;
+}
+
+function progCheckinModal() {
+  const w = modal.week;
+  const kg = state.food.weights[todayISO()] ?? '';
+  return `${modalHead(`Week ${w} check-in`)}
+    <form id="prog-ci-form" class="space-y-3">
+      <p class="text-sm muted">Best done first thing in the morning, after the toilet and before eating.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block"><span class="label">Weight (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="weight" value="${kg}" required></label>
+        <label class="block"><span class="label">Waist (cm)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="0" name="waist" placeholder="${measureSeries('waist').pop() ? `last ${fmt(measureSeries('waist').pop().v)}` : 'optional'}"></label>
+      </div>
+      <fieldset><legend class="label">How is training feeling?</legend>
+        <div class="grid grid-cols-3 gap-2">${FEEL.map(([v, l], i) => `<label><input class="seg-input sr-only" type="radio" name="feel" value="${v}" ${i === 1 ? 'checked' : ''}><span class="seg h-full text-center">${l}</span></label>`).join('')}</div>
+      </fieldset>
+      <label class="block"><span class="label">Notes (optional)</span><input class="input" name="note" maxlength="200" placeholder="Sleep, hunger, niggles…"></label>
+      <p class="text-xs muted">Take your progress photos too, same spot and light as last time.</p>
+      <button type="submit" class="btn-primary w-full">Save check-in</button>
+    </form>`;
+}
+
+/** Check-in results: weight, waist and strength since the start, and what to change. */
+function progReviewModal() {
+  const p = state.programme, c = progCheckin(modal.week);
+  if (!c) return `${modalHead('Check-in')}<p class="muted">Not found.</p>`;
+  const base = progCheckin(0);
+  const prev = [...p.checkins].filter((x) => x.week < c.week).sort((a, b) => b.week - a.week)[0];
+  const signed = (v, d = 1) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmt(Math.abs(d === 1 ? round1(v) : round2(v)))}`;
+  const kg = (x) => x.trend ?? x.weight;
+  let html = `${modalHead(c.week ? `Week ${c.week} check-in` : 'Starting point')}<p class="-mt-2 mb-3 text-sm muted">${fmtDay(c.date)}</p>`;
+
+  if (!prev) {
+    html += `<div class="rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
+      <p><b>${fmt(c.weight)} kg</b>${c.waist ? ` · waist <b>${fmt(c.waist)} cm</b>` : ''}${p.goalKg ? ` · goal <b>${fmt(p.goalKg)} kg</b>` : ''}</p>
+      <p class="mt-1 muted">This is your baseline. Each check-in compares against it.</p></div>
+      <button class="btn-primary mt-4 w-full" data-action="close-modal">Done</button>`;
+    return html;
+  }
+
+  const weeks = Math.max(1, daysBetween(prev.date, c.date) / 7);
+  const rate = (kg(c) - kg(prev)) / weeks; // kg per week since the last check-in
+  const total = kg(c) - kg(base);
+  const lifts = strengthChanges(c.date);
+  const up = lifts.filter((l) => l.dir > 0), down = lifts.filter((l) => l.dir < 0);
+  const waistBase = [...p.checkins].filter((x) => x.waist && x.week < c.week).sort((a, b) => a.week - b.week)[0];
+  const stat = (label, value, sub) => `<div class="rounded-xl bg-slate-100 p-2 text-center dark:bg-slate-800/60"><p class="text-lg font-bold tabular-nums">${value}</p><p class="text-[11px] muted">${label}</p>${sub ? `<p class="text-[10px] muted">${sub}</p>` : ''}</div>`;
+
+  html += `<div class="grid grid-cols-3 gap-2">
+    ${stat('Weight (trend)', `${fmt(round1(kg(c)))} kg`, `${signed(total)} since start`)}
+    ${stat('Per week', `${signed(rate, 2)} kg`, `since ${prev.week ? `week ${prev.week}` : 'start'}`)}
+    ${stat('Waist', c.waist ? `${fmt(c.waist)} cm` : '—', c.waist && waistBase ? `${signed(c.waist - waistBase.waist)} cm` : '')}
+  </div>`;
+  if (p.goalKg && kg(c) > p.goalKg) {
+    const left = kg(c) - p.goalKg;
+    html += `<p class="mt-3 text-sm"><b>${fmt(round1(left))} kg</b> to go to ${fmt(p.goalKg)} kg${rate < -0.05 ? `, about <b>${Math.ceil(left / -rate)} weeks</b> at this rate` : ''}.</p>`;
+  } else if (p.goalKg) html += `<p class="mt-3 text-sm font-semibold text-emerald-700 dark:text-emerald-400">You’ve reached your ${fmt(p.goalKg)} kg goal! Consider switching Food → Targets to maintain or lean gain.</p>`;
+
+  if (lifts.length) {
+    html += `<div class="mt-4"><p class="label">Strength since the start</p>
+      <p class="text-sm"><b class="text-emerald-700 dark:text-emerald-400">${up.length} up</b> · ${lifts.length - up.length - down.length} same · <b class="${down.length ? 'text-rose-600 dark:text-rose-400' : ''}">${down.length} down</b></p>
+      <ul class="mt-1 divide-y divide-slate-200 text-sm dark:divide-slate-800">${[...up.sort((a, b) => b.pct - a.pct), ...down].slice(0, 8).map((l) => `<li class="flex items-center justify-between gap-2 py-1.5">
+        <span class="min-w-0 truncate">${l.dir > 0 ? '▲' : '▼'} ${esc(l.ex.name)}</span><span class="shrink-0 text-xs tabular-nums muted">${l.text}</span></li>`).join('')}</ul></div>`;
+  }
+
+  const advice = [];
+  if (rate < -0.75) advice.push('You’re losing faster than a slow cut (0.25–0.5 kg a week). To hold on to muscle while you build strength, add about 150 kcal a day in Food → Targets & profile.');
+  else if (rate <= -0.15) advice.push('Weight loss is right in the slow-cut zone. Keep your calories as they are.');
+  else if (up.length > down.length && c.waist && prev.waist && c.waist < prev.waist) advice.push('The scale is flat, but your waist is down and lifts are up: that’s recomposition. Keep going.');
+  else advice.push('Weight loss has stalled. Accept the next weekly calorie check-in on the Food tab, or trim about 150 kcal a day.');
+  if (down.length > up.length) advice.push('More lifts went down than up. Prioritise sleep (7–9 hours), keep protein around 2 g per kg, and don’t cut calories any further for now.');
+  if (c.feel === 'beaten') advice.push(c.week >= 12 ? 'You said you feel run down: take the deload seriously before starting another block.' : 'You said you feel run down. If that’s still true after the next deload, drop one set from your two or three biggest exercises.');
+  if (c.week === 4) advice.push('Next: finish Block 1 (week 5), then the week 6 deload.');
+  if (c.week === 8) advice.push('Block 2 is about pushing the last set hard. Three weeks to go before the final deload.');
+  if (c.week === 12) advice.push('Programme done! Start another 12 weeks from the Plan tab to keep heading towards your goal.');
+  html += `<div class="mt-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3"><p class="font-semibold">What to do next</p>
+    <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">${advice.map((a) => `<li>${a}</li>`).join('')}</ul></div>
+    ${c.note ? `<p class="mt-3 text-sm muted">Your note: “${esc(c.note)}”</p>` : ''}
+    <button class="btn-primary mt-4 w-full" data-action="close-modal">Done</button>`;
+  return html;
+}
+
 // ----- Plan tab -----
 function planView() {
   const weekEnd = addDays(planWeek, 6);
@@ -968,6 +1244,7 @@ function planView() {
     state.routines.map((r) => `<option value="${r.id}" ${r.id === selected ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
 
   let html = `<h2 class="mb-4 text-2xl font-bold">Plan</h2>
+  ${programmeCard()}
   <section class="card mb-4">
     <div class="mb-3 flex items-center justify-between">
       <button class="icon-btn text-2xl" data-action="plan-week" data-dir="-1" aria-label="Previous week">‹</button>
@@ -1556,7 +1833,7 @@ function historyView() {
                 ${prs.length ? `<p class="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">🏆 ${prs.join(' · ')}</p>` : ''}
               </div>
               <div class="flex shrink-0 items-center gap-1">
-                ${h.deload ? '<span class="badge bg-amber-500/15 text-amber-700 dark:text-amber-300">Deload</span>' : ''}
+                ${h.deload || h.pdl ? `<span class="badge bg-amber-500/15 text-amber-700 dark:text-amber-300">${h.pdl ? 'Deload wk' : 'Deload'}</span>` : ''}
                 ${ev ? (ev.hitCeiling ? `<span class="badge bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Ceiling hit</span>` : `<span class="badge bg-slate-500/10 text-slate-600 dark:text-slate-300">${ev.total} reps</span>`) : ''}
                 <button class="icon-btn h-9 w-9" data-action="delete-session" data-id="${h.id}" aria-label="Delete session">
                   <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -1589,7 +1866,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -1730,7 +2007,7 @@ function swapModal() {
   return `${modalHead(`Swap ${esc(cur.name)}`)}
     <p class="-mt-1 mb-2 text-sm muted">Machine taken? Pick a replacement for this workout. Your routine stays the same.</p>
     ${options.length ? `<ul class="divide-y divide-slate-200 dark:divide-slate-800">${options.map(({ ex, score }) => {
-      const p = predict(ex);
+      const p = targetFor(ex);
       return `<li><button class="flex w-full items-center justify-between gap-3 py-2.5 text-left" data-action="swap-to" data-id="${ex.id}">
         <span class="min-w-0">
           <span class="block truncate font-medium">${esc(ex.name)} ${score > 0 ? '<span class="badge ml-1 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Similar</span>' : ''}</span>
@@ -3042,12 +3319,13 @@ function finishWorkout() {
   d.entries.forEach((entry, k) => {
     const ex = exById(entry.exerciseId);
     if (!ex) return;
-    const sets = cleanSets(entry.sets, predict(ex).weight);
+    const sets = cleanSets(entry.sets, targetFor(ex).weight);
     if (!sets.length) return;
     const h = { id: uid(), exerciseId: ex.id, date: d.date || todayISO(), ts: ts + k, sets };
     if (entry.note.trim()) h.note = entry.note.trim();
     if (entry.rpe) h.rpe = entry.rpe;
     if (entry.deload) h.deload = true;
+    if (d.pdl) h.pdl = true;
     state.history.push(h);
     saved.push(h);
   });
@@ -3114,6 +3392,18 @@ function noticesHtml() {
       <div class="mt-2 flex items-center gap-4">
         <button class="btn-primary px-3 py-2 text-sm" data-action="import">Restore a backup</button>
         <button class="link" data-action="snooze" data-key="restore" data-days="3650">I’m starting fresh</button>
+      </div>
+    </section>`;
+  }
+  const due = dueCheckin();
+  if (due && !snoozed(`prog-${due}`)) {
+    html += `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">12-week programme</p>
+      <p class="mt-1 font-semibold">Week ${due} check-in is due</p>
+      <p class="mt-0.5 text-sm muted">Weigh in, measure your waist and take your photos. Takes two minutes, and shows how weight, waist and strength are moving.</p>
+      <div class="mt-2 flex items-center gap-4">
+        <button class="btn-primary px-3 py-2 text-sm" data-action="prog-checkin" data-week="${due}">Check in</button>
+        <button class="link" data-action="snooze" data-key="prog-${due}" data-days="1">Tomorrow</button>
       </div>
     </section>`;
   }
@@ -3234,12 +3524,12 @@ document.addEventListener('click', (e) => {
       state.draft.entries.splice(ei, 1); break;
     case 'add-set': {
       const lastSet = entry.sets[entry.sets.length - 1];
-      entry.sets.push({ weight: lastSet ? lastSet.weight : String(predict(exById(entry.exerciseId)).weight), reps: '' });
+      entry.sets.push({ weight: lastSet ? lastSet.weight : String(targetFor(exById(entry.exerciseId)).weight), reps: '' });
       break;
     }
     case 'remove-set': entry.sets.splice(si, 1); break;
     case 'fill-set': {
-      const ex = exById(entry.exerciseId), p = predict(ex), s = entry.sets[si];
+      const ex = exById(entry.exerciseId), p = targetFor(ex), s = entry.sets[si];
       if (parseInt(s.reps, 10) > 0) s.reps = ''; // tap again to un-mark
       else {
         if (s.weight === '') s.weight = String(p.weight);
@@ -3283,7 +3573,7 @@ document.addEventListener('click', (e) => {
       const en = state.draft?.entries[modal.e], ex = exById(id);
       if (!en || !ex) return;
       if (en.sets.some((x) => x.reps !== '') && !confirm('Swap this exercise? The sets you’ve logged for it will be cleared.')) return;
-      const p = predict(ex);
+      const p = targetFor(ex);
       Object.assign(en, { exerciseId: id, sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })), note: '', rpe: '', deload: false });
       modal = null;
       toast(`Swapped to ${ex.name}`);
@@ -3300,6 +3590,28 @@ document.addEventListener('click', (e) => {
       const p = predict(exById(entry.exerciseId));
       entry.deload = false;
       entry.sets.forEach((s) => (s.weight = String(p.weight)));
+      break;
+    }
+    case 'toggle-pdl': {
+      const d = state.draft;
+      d.pdl = !d.pdl;
+      d.entries.forEach((en) => { // re-fill exercises that haven't been started yet
+        if (en.sets.some((x) => x.reps !== '')) return;
+        const p = targetFor(exById(en.exerciseId));
+        en.sets = p.reps.map(() => ({ weight: String(p.weight), reps: '' }));
+      });
+      toast(d.pdl ? 'Deload targets on' : 'Normal targets today');
+      break;
+    }
+    case 'prog-setup': modal = { type: 'prog-setup' }; renderModal(); return;
+    case 'prog-checkin': modal = { type: 'prog-checkin', week: Number(btn.dataset.week) }; renderModal(); return;
+    case 'prog-review': modal = { type: 'prog-review', week: Number(btn.dataset.week) }; renderModal(); return;
+    case 'prog-end': {
+      const done = todayISO() > progEnd();
+      if (!done && !confirm('End the 12-week programme early? Your workouts and check-ins are kept.')) return;
+      state.pastProgrammes.push({ ...state.programme, ended: todayISO() });
+      state.programme = null;
+      if (state.draft) state.draft.pdl = false;
       break;
     }
     case 'finish': return finishWorkout();
@@ -3404,7 +3716,7 @@ document.addEventListener('input', (e) => {
     saveState();
     const ex = exById(entry.exerciseId);
     document.getElementById(`row-${ei}-${si}`).classList.toggle('done', parseInt(entry.sets[si].reps, 10) > 0);
-    const p = predict(ex);
+    const p = targetFor(ex);
     document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, p);
     if (el.dataset.field === 'weight') document.getElementById(`warm-${ei}`).innerHTML = warmupHtml(entry, ex, p, plateau(ex));
   } else if (el.dataset.entryField) {
@@ -3449,7 +3761,37 @@ document.addEventListener('change', (e) => {
   saveState();
 });
 
+/** Save a check-in's weight and waist into the weight log and measurements too. */
+function logBody(date, kg, waist) {
+  if (kg) state.food.weights[date] = kg;
+  if (waist) state.body.measures[date] = { ...(state.body.measures[date] || {}), waist };
+}
+
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'prog-form' || e.target.id === 'prog-ci-form') {
+    e.preventDefault();
+    const fd = new FormData(e.target), today = todayISO();
+    const num = (k) => { const v = parseFloat(fd.get(k)); return v > 0 ? round1(v) : null; };
+    const kg = num('weight'), waist = num('waist');
+    if (!(kg >= 20 && kg <= 400)) return toast('Enter your weight in kg');
+    logBody(today, kg, waist);
+    const c = { date: today, weight: kg, trend: trendAt(today, kg), waist };
+    if (e.target.id === 'prog-form') {
+      if (state.programme) state.pastProgrammes.push({ ...state.programme, ended: today });
+      state.programme = { id: uid(), start: String(fd.get('start')), goalKg: num('goal'), checkins: [{ week: 0, ...c }] };
+      if (state.draft) state.draft.pdl = isDeloadWeek(state.draft.date);
+      modal = null;
+      toast('Programme started');
+    } else {
+      const week = modal.week;
+      state.programme.checkins = state.programme.checkins.filter((x) => x.week !== week);
+      state.programme.checkins.push({ week, ...c, feel: String(fd.get('feel') || 'ok'), note: String(fd.get('note') || '').trim() });
+      state.programme.checkins.sort((a, b) => a.week - b.week);
+      modal = { type: 'prog-review', week };
+    }
+    saveState(); render();
+    return;
+  }
   if (e.target.id === 'measure-form') {
     e.preventDefault();
     const fd = new FormData(e.target);

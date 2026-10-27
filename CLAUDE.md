@@ -58,6 +58,18 @@ Tabs: Workout, Food, Plan, Stats, Exercises, History.
 - Plateau: 3 sessions in a row without progress → offer ~10% deload (more
   assistance for assisted). Logged deloads reset the count.
 
+**12-week programme** (`state.programme`, old ones in `state.pastProgrammes`):
+sits on top of the routines/schedule, which it never changes. Weeks 1–5 Build
+(1–2 reps in reserve), 6 Deload, 7–11 Push (last set near failure), 12 Deload &
+review. In deload weeks `targetFor(ex)` gives last session's load, half the
+sets, bottom of the rep range; those sessions are saved with `h.pdl` and are
+skipped by `predict()` and reset `plateau()`. Draft has `pdl` (toggle "Train
+normally today"). Check-ins: week 0 at setup, then end of weeks 4/8/12
+(weight, waist, feel, note; also written to the weight log/measurements);
+review compares trend weight, waist and e1RM vs the last session before the
+start. Owner (Oct 2026): ~103.9 kg, goal 95 kg, slow cut, 5 days/week, no
+squats or deadlifts.
+
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
 exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
