@@ -124,15 +124,20 @@ def build_cofid():
         foods = {}
         for ws in wb.worksheets:
             rows = ws.iter_rows(values_only=True)
-            header = None
-            for _ in range(6):
+            header, seen = None, []
+            norm = lambda c: re.sub(r'\s+', ' ', str(c or '')).strip().lower()
+            for _ in range(15):
                 row = next(rows, None)
-                if row and any(str(c or '').strip().lower() == 'food code' for c in row):
-                    header = [str(c or '').strip().lower() for c in row]
+                if row is None:
+                    break
+                seen.append([norm(c) for c in row[:4]])
+                if any(norm(c) in ('food code', 'foodcode', 'code') for c in row):
+                    header = [norm(c) for c in row]
                     break
             if not header:
+                print(f'sheet {ws.title!r}: skipped, no "Food Code" header in first rows: {seen[:3]}')
                 continue
-            ci = {'code': header.index('food code')}
+            ci = {'code': next(i for i, h in enumerate(header) if h in ('food code', 'foodcode', 'code'))}
             if 'food name' in header:
                 ci['name'] = header.index('food name')
             for field, match in matchers:

@@ -15,7 +15,10 @@ browser's `localStorage` (use **History → Export** to back it up).
   from your details, UK label nutrients (fibre, sugars, saturates, salt),
   built-in UK basics, UK shop and brand search and barcode scanning via
   [Open Food Facts](https://world.openfoodfacts.org), favourites, recents,
-  custom foods, quick add and copy-from-yesterday.
+  custom foods, quick add, copy-from-yesterday, recipes and saved meals,
+  water tracking, a smoothed bodyweight trend with weekly check-ins that adjust
+  your calorie target from real results, and optional extra calories on
+  training days (weekly total unchanged).
 - **Plan** — up to 5 routines, a weekly repeating schedule, and a calendar
   where you can swap, skip or move any single day without changing the plan.
 - **Stats** — weekly sets per muscle (vs a 10–20 set target), weekly volume

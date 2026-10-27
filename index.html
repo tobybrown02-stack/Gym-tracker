@@ -437,7 +437,10 @@ function seedState() {
   };
 }
 
-const emptyFood = () => ({ profile: null, targets: null, foods: {}, log: {}, favs: [] });
+const emptyFood = () => ({
+  profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [],
+  prefs: { trainingOn: false, trainingBoost: 200, water: 2500 },
+});
 
 /** Accepts saved data from any version of the app and fills in new fields. */
 function migrate(d) {
@@ -447,7 +450,7 @@ function migrate(d) {
     routines: d.routines || [],
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
     settings: { barWeight: 20, ...(d.settings || {}) },
-    food: { ...emptyFood(), ...(d.food || {}) },
+    food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     draft: d.draft ? { routineId: null, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -1314,10 +1317,11 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
+  if (modal.type === 'weight') attachWeightChart();
 }
 
 const EQ_FILTERS = [['', 'All'], ['dumbbell', 'Dumbbell'], ['machine', 'Machine / cable'], ['barbell', 'Barbell']];
@@ -1630,7 +1634,7 @@ let scanner = null;
 const foodById = (id) => UK_BY_ID[id] || state.food.foods[id] || null;
 const dayEntries = (date) => state.food.log[date] || [];
 const unitsFor = (food) => [{ label: 'g', g: 1 }, ...(food.portions || [])];
-const srcLabel = { uk: 'UK basics (typical values)', off: 'Open Food Facts', cofid: 'UK government data (CoFID)', custom: 'My food' };
+const srcLabel = { uk: 'UK basics (typical values)', off: 'Open Food Facts', cofid: 'UK government data (CoFID)', custom: 'My food', recipe: 'My recipe' };
 
 // ----- Offline food data (food-data/, rebuilt weekly by a GitHub Action) -----
 const foodData = { products: null, cofid: null, productIndex: null, cofidIndex: null, byCode: null, promise: null };
@@ -1721,6 +1725,87 @@ function recentFoodIds() {
 
 const amountLabel = (e) => (!e.foodId ? '' : e.unit === 'g' ? `${fmt(e.qty)} g` : `${fmt(e.qty)} × ${e.unit.replace(/^1 /, '')} (${fmt(e.g)} g)`);
 
+// ----- Weight trend, weekly check-in, training days -----
+const daysBetween = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 864e5);
+const KCAL_PER_KG = 7700;
+
+/** Weigh-ins smoothed into a trend (exponential moving average, 10% per day). */
+function weightSeries() {
+  let trend = null, prev = null;
+  return Object.keys(state.food.weights).sort().map((date) => {
+    const kg = state.food.weights[date];
+    trend = trend === null ? kg : trend + (1 - 0.9 ** Math.max(1, daysBetween(prev, date))) * (kg - trend);
+    prev = date;
+    return { date, kg, trend: round2(trend) };
+  });
+}
+
+/** Trend change in kg per week over (up to) the last 14 days of the series. */
+function weeklyRate(series) {
+  if (series.length < 2) return null;
+  const last = series[series.length - 1];
+  const first = series.find((p) => daysBetween(p.date, last.date) <= 14);
+  const days = daysBetween(first.date, last.date);
+  return days >= 6 ? ((last.trend - first.trend) / days) * 7 : null;
+}
+
+/**
+ * Weekly check-in: estimate real maintenance calories from the last 3 weeks
+ * of logged food and the weight trend, then suggest a target for the goal.
+ * Days with under 800 kcal logged are treated as incomplete and skipped.
+ */
+function checkinEstimate() {
+  const t = state.food.targets, p = state.food.profile;
+  if (!t || !p) return null;
+  const end = addDays(todayISO(), -1), start = addDays(end, -20);
+  const intakes = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const kcal = dayTotals(d).kcal;
+    if (kcal >= 800) intakes.push(kcal);
+  }
+  const pts = weightSeries().filter((w) => w.date >= start);
+  if (intakes.length < 10 || pts.length < 4) return null;
+  const span = daysBetween(pts[0].date, pts[pts.length - 1].date);
+  if (span < 10) return null;
+  const kgPerDay = (pts[pts.length - 1].trend - pts[0].trend) / span;
+  const avg = Math.round(sum(intakes) / intakes.length);
+  const tdee = Math.round(avg - kgPerDay * KCAL_PER_KG);
+  const delta = (GOALS.find((g) => g[0] === p.goal) || GOALS[2])[1];
+  const ideal = Math.round((tdee + delta) / 10) * 10;
+  const target = Math.max(p.sex === 'female' ? 1200 : 1500, Math.min(t.kcal + 200, Math.max(t.kcal - 200, ideal)));
+  return { avg, days: intakes.length, span, kgPerWeek: kgPerDay * 7, tdee, target, current: t.kcal };
+}
+
+function checkinDue() {
+  const last = state.food.checkins[state.food.checkins.length - 1];
+  return last && daysBetween(last.date, todayISO()) < 7 ? null : checkinEstimate();
+}
+
+function applyCheckin(accept) {
+  const est = checkinEstimate(), t = state.food.targets;
+  if (!est) return;
+  state.food.checkins.push({ date: todayISO(), tdee: est.tdee, from: t.kcal, to: accept ? est.target : t.kcal });
+  if (accept && est.target !== t.kcal) {
+    // Keep protein and fat; the change goes into carbs.
+    Object.assign(t, { carbs: Math.max(0, t.carbs + Math.round((est.target - t.kcal) / 4)), kcal: est.target }, fixedTargets(est.target));
+  }
+  const series = weightSeries();
+  if (series.length) state.food.profile.weight = round1(series[series.length - 1].trend);
+}
+
+const trainingDaysPerWeek = () => DAYS.filter((_, i) => routineById(state.schedule.weekly[i])).length;
+
+/** Targets for a date: calories (as carbs) shift from rest days to training days; the weekly total is unchanged. */
+function targetsFor(date) {
+  const t = state.food.targets;
+  if (!t) return null;
+  const n = trainingDaysPerWeek(), pr = state.food.prefs;
+  if (!pr.trainingOn || n === 0 || n === 7) return { ...t, dayType: null, dayDelta: 0 };
+  const training = !!plannedRoutine(date) || state.history.some((h) => h.date === date);
+  const d = training ? pr.trainingBoost : -Math.round((pr.trainingBoost * n) / (7 - n));
+  return { ...t, kcal: t.kcal + d, carbs: Math.max(0, t.carbs + Math.round(d / 4)), dayType: training ? 'training' : 'rest', dayDelta: d };
+}
+
 // ----- Food tab -----
 function foodView() {
   const today = todayISO();
@@ -1735,13 +1820,17 @@ function foodView() {
     <button class="icon-btn text-2xl" data-food="date" data-dir="1" ${foodDate >= today ? 'disabled' : ''} aria-label="Next day">›</button>
   </div>`;
 
-  html += t ? foodSummary(dayTotals(foodDate), t) : `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+  html += checkinCard();
+  const tf = targetsFor(foodDate);
+  if (tf?.dayType) html += `<p class="-mt-1 mb-2 text-center"><span class="badge bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">${tf.dayType === 'training' ? 'Training day' : 'Rest day'} · ${tf.dayDelta > 0 ? '+' : ''}${tf.dayDelta} kcal</span></p>`;
+  html += t ? foodSummary(dayTotals(foodDate), tf) : `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
     <h3 class="font-semibold">Set your daily targets</h3>
     <p class="mt-1 text-sm muted">Enter a few details and the app works out calories and macros for your goal.</p>
     <button class="btn-primary mt-3 w-full" data-food="setup">Set up targets</button>
   </section>`;
 
   html += MEALS.map(mealCard).join('');
+  html += waterCard() + weightCard();
   html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>
   <p class="mt-4 text-center text-[11px] leading-relaxed muted">Product data © <a class="underline" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> contributors (ODbL).
   UK reference data: McCance and Widdowson’s Composition of Foods Integrated Dataset, Office for Health Improvement and Disparities (Open Government Licence).</p>`;
@@ -1789,6 +1878,120 @@ function foodSummary(tot, t) {
   </section>`;
 }
 
+function checkinCard() {
+  const est = foodDate === todayISO() && checkinDue();
+  if (!est) return '';
+  const change = est.target - est.current;
+  const sign = (v) => (v > 0 ? '+' : '');
+  return `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+    <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Weekly check-in</p>
+    <p class="mt-1 text-sm">Over the last ${est.span} days your trend weight moved <b>${sign(est.kgPerWeek)}${fmt(round2(est.kgPerWeek))} kg a week</b> while you averaged <b>${fmtKg(est.avg)} kcal</b> (${est.days} logged days).</p>
+    <p class="mt-1 text-sm">That puts your real maintenance at about <b>${fmtKg(est.tdee)} kcal</b>.</p>
+    ${Math.abs(change) >= 30 ? `<p class="mt-2 font-semibold">Suggested target: ${fmtKg(est.target)} kcal <span class="text-sm font-normal muted">(now ${fmtKg(est.current)}, ${sign(change)}${change})</span></p>
+      <p class="text-xs muted">Changes are capped at 200 kcal a week. Protein and fat stay the same; carbs adjust.</p>
+      <div class="mt-3 grid grid-cols-2 gap-2">
+        <button class="btn-ghost py-2" data-food="checkin" data-accept="0">Keep current</button>
+        <button class="btn-primary py-2" data-food="checkin" data-accept="1">Update target</button>
+      </div>`
+      : `<p class="mt-2 font-semibold">You’re on track. Keep ${fmtKg(est.current)} kcal.</p>
+      <button class="btn-primary mt-3 w-full py-2" data-food="checkin" data-accept="0">Got it</button>`}
+  </section>`;
+}
+
+function waterCard() {
+  const ml = state.food.water[foodDate] || 0, target = state.food.prefs.water;
+  return `<section class="card mb-3">
+    <div class="flex items-center justify-between">
+      <h3 class="font-semibold">Water</h3>
+      <span class="text-sm tabular-nums"><b>${fmtKg(ml)}</b><span class="muted"> / ${fmtKg(target)} ml</span></span>
+    </div>
+    <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full bg-sky-500" style="width:${Math.min(100, (ml / target) * 100)}%"></div></div>
+    <div class="mt-3 grid grid-cols-3 gap-2">
+      <button class="btn-ghost px-2 py-2 text-sm" data-food="water" data-ml="250">+250 ml</button>
+      <button class="btn-ghost px-2 py-2 text-sm" data-food="water" data-ml="500">+500 ml</button>
+      <button class="btn-ghost px-2 py-2 text-sm" data-food="water" data-ml="-250" ${ml ? '' : 'disabled'}>Undo</button>
+    </div>
+  </section>`;
+}
+
+function weightCard() {
+  const series = weightSeries().filter((p) => p.date <= foodDate);
+  const logged = state.food.weights[foodDate];
+  const last = series[series.length - 1];
+  const rate = weeklyRate(series);
+  return `<section class="card mb-3">
+    <div class="flex items-center justify-between">
+      <h3 class="font-semibold">Weight</h3>
+      ${series.length ? '<button class="link" data-food="weight-view">Trend &amp; history</button>' : ''}
+    </div>
+    ${last ? `<p class="mt-1 text-sm"><span class="muted">Trend</span> <b class="tabular-nums">${fmt(round1(last.trend))} kg</b>${rate !== null ? `<span class="muted"> · ${rate > 0 ? '+' : ''}${fmt(round2(rate))} kg a week</span>` : ''}</p>`
+      : '<p class="mt-1 text-sm muted">Weigh in most mornings, after the toilet and before eating. The trend line smooths out day-to-day water swings, and after ~2 weeks of weigh-ins and food logging you’ll get weekly target check-ins.</p>'}
+    <div class="mt-3 flex gap-2">
+      <input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" id="weight-input" placeholder="Weight in kg" value="${logged ?? ''}" aria-label="Weight for this day in kg">
+      <button class="btn-primary shrink-0" data-food="weight-save">${logged ? 'Update' : 'Log'}</button>
+    </div>
+  </section>`;
+}
+
+function weightModal() {
+  const series = weightSeries();
+  return `${modalHead('Weight')}
+    ${series.length > 1 ? weightChart(series.slice(-90)) : ''}
+    <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">${series.slice().reverse().slice(0, 60).map((p) => `<li class="flex items-center justify-between gap-2 py-1.5">
+      <span class="text-sm">${fmtDay(p.date)}</span>
+      <span class="flex items-center gap-3">
+        <span class="font-semibold tabular-nums">${fmt(p.kg)} kg</span>
+        <span class="w-20 text-right text-xs tabular-nums muted">trend ${p.trend.toFixed(1)}</span>
+        <button class="icon-btn h-8 w-8" data-food="weight-del" data-date="${p.date}" aria-label="Delete ${fmtDay(p.date)} weigh-in">${ICON_X}</button>
+      </span>
+    </li>`).join('')}</ul>`;
+}
+
+/** Weigh-in dots plus the trend line, with a tap/hover readout. */
+function weightChart(pts) {
+  const W = 340, H = 170, pl = 36, pr = 10, pt = 10, pb = 22;
+  const vals = pts.flatMap((p) => [p.kg, p.trend]);
+  const pad = Math.max(0.5, (Math.max(...vals) - Math.min(...vals)) * 0.15);
+  const lo = Math.floor((Math.min(...vals) - pad) * 2) / 2, hi = Math.ceil((Math.max(...vals) + pad) * 2) / 2;
+  const t0 = parseISO(pts[0].date).getTime(), t1 = parseISO(pts[pts.length - 1].date).getTime();
+  const x = (d) => round2(pl + (t1 === t0 ? (W - pl - pr) / 2 : ((parseISO(d).getTime() - t0) / (t1 - t0)) * (W - pl - pr)));
+  const y = (v) => round2(pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb));
+  const ticks = [lo, (lo + hi) / 2, hi].map(round1);
+  const xy = pts.map((p) => ({ x: x(p.date), label: `${fmtDay(p.date)}: <b>${fmt(p.kg)} kg</b> <span class="muted">· trend ${fmt(round1(p.trend))} kg</span>` }));
+  return `<div data-chart="weight" data-points="${esc(JSON.stringify(xy))}">
+    <div class="mb-1 flex items-center gap-4 text-xs muted">
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>Daily weigh-in</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-indigo-500"></span>Trend</span>
+    </div>
+    <p class="mb-1 text-sm" data-readout>${xy[xy.length - 1].label}</p>
+    <svg viewBox="0 0 ${W} ${H}" class="h-auto w-full touch-none select-none overflow-visible" role="img" aria-label="Weight trend chart">
+      ${ticks.map((v) => `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" class="stroke-slate-200 dark:stroke-slate-800" stroke-width="1"/>
+        <text x="${pl - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmt(v)}</text>`).join('')}
+      <text x="${pl}" y="${H - 6}" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmtShort(pts[0].date)}</text>
+      <text x="${W - pr}" y="${H - 6}" font-size="10" text-anchor="end" class="fill-slate-500 dark:fill-slate-400">${fmtShort(pts[pts.length - 1].date)}</text>
+      <line data-cross x1="0" x2="0" y1="${pt}" y2="${H - pb}" class="stroke-slate-400 dark:stroke-slate-500" stroke-width="1" visibility="hidden"/>
+      ${pts.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.kg)}" r="3" class="fill-slate-400 dark:fill-slate-500"/>`).join('')}
+      <path d="${pts.map((p, k) => `${k ? 'L' : 'M'}${x(p.date)},${y(p.trend)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+  </div>`;
+}
+
+function attachWeightChart() {
+  const wrap = document.querySelector('[data-chart=weight]');
+  if (!wrap) return;
+  const pts = JSON.parse(wrap.dataset.points);
+  const svg = wrap.querySelector('svg'), out = wrap.querySelector('[data-readout]'), cross = svg.querySelector('[data-cross]');
+  const show = (e) => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * 340;
+    const p = pts.reduce((b, q) => (Math.abs(q.x - vx) < Math.abs(b.x - vx) ? q : b));
+    out.innerHTML = p.label;
+    cross.setAttribute('x1', p.x); cross.setAttribute('x2', p.x); cross.setAttribute('visibility', 'visible');
+  };
+  svg.addEventListener('pointermove', show);
+  svg.addEventListener('pointerdown', show);
+}
+
 function mealCard([key, label]) {
   const entries = dayEntries(foodDate).filter((e) => e.meal === key);
   const yesterday = dayEntries(addDays(foodDate, -1)).filter((e) => e.meal === key);
@@ -1808,6 +2011,7 @@ function mealCard([key, label]) {
     </li>`).join('')}</ul>` : ''}
     <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
       <button class="link" data-food="add" data-meal="${key}">+ Add food</button>
+      ${entries.length ? `<button class="link" data-food="save-meal" data-meal="${key}">Save as meal</button>` : ''}
       ${!entries.length && yesterday.length ? `<button class="link" data-food="copy" data-meal="${key}">Copy yesterday’s (${fmtKg(sum(yesterday.map((e) => e.n.kcal)))} kcal)</button>` : ''}
     </div>
   </section>`;
@@ -1834,16 +2038,19 @@ function foodModal() {
     </div>`;
   if (m.step === 'quick') return quickStep();
   if (m.step === 'custom') return customStep();
-  return `${modalHead(`Add to ${MEAL_LABEL[m.meal]}`)}
+  if (m.step === 'recipe') return recipeStep();
+  const forRecipe = m.target === 'recipe';
+  return `${modalHead(forRecipe ? 'Add ingredient' : `Add to ${MEAL_LABEL[m.meal]}`, forRecipe)}
     <div class="flex gap-2">
       <input class="input" type="search" enterkeyhint="search" placeholder="Search foods…" data-fs="query" value="${esc(m.query)}" aria-label="Search foods">
       <button class="btn-primary shrink-0 px-3" data-food="scan" aria-label="Scan a barcode">
         <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M11 8v8M14 8v8M17 8v8"/></svg>Scan
       </button>
     </div>
-    <div class="mt-2 grid grid-cols-2 gap-2">
-      <button class="btn-ghost py-2 text-sm" data-food="quick">Quick add calories</button>
-      <button class="btn-ghost py-2 text-sm" data-food="custom">Create a food</button>
+    <div class="mt-2 grid ${forRecipe ? 'grid-cols-1' : 'grid-cols-3'} gap-2">
+      ${forRecipe ? '' : '<button class="btn-ghost px-2 py-2 text-sm" data-food="quick">Quick add</button>'}
+      <button class="btn-ghost px-2 py-2 text-sm" data-food="custom">Create food</button>
+      ${forRecipe ? '' : '<button class="btn-ghost px-2 py-2 text-sm" data-food="recipe-new">New recipe</button>'}
     </div>
     <div id="fs-results" class="mt-3">${foodResults()}</div>`;
 }
@@ -1874,8 +2081,9 @@ function foodResults() {
   if (!q) {
     const favs = state.food.favs.map(foodById).filter(Boolean);
     const recent = recentFoodIds().filter((id) => !state.food.favs.includes(id)).map(foodById);
-    const custom = mine.filter((f) => f.src === 'custom' && !state.food.favs.includes(f.id));
-    const html = listSection('★ Favourites', favs) + listSection('Recent', recent) + listSection('My foods', custom);
+    const custom = mine.filter((f) => (f.src === 'custom' || f.src === 'recipe') && !state.food.favs.includes(f.id));
+    const html = (modal.target === 'recipe' ? '' : savedMealsSection(state.food.meals)) +
+      listSection('★ Favourites', favs) + listSection('Recent', recent) + listSection('My foods &amp; recipes', custom);
     return html || `<p class="rounded-xl bg-slate-100 p-4 text-sm muted dark:bg-slate-800/60">Search for a food, or scan a barcode. Foods you log will appear here for quick re-adding.</p>`;
   }
   const off = modal.off;
@@ -1896,7 +2104,58 @@ function foodResults() {
     else offHtml = offHtml.replace('UK shops &amp; brands', 'More from Open Food Facts (online)');
   }
   if (foodData.cofid) local += listSection('UK government data', searchIndex(foodData.cofidIndex, foodData.cofid.rows, q, 10, cofidFood));
-  return listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, foodData.products ? 6 : 15)) + local + offHtml;
+  const meals = modal.target === 'recipe' ? [] : state.food.meals.filter((sm) => q.split(/\s+/).every((w) => sm.name.toLowerCase().includes(w)));
+  return savedMealsSection(meals) + listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, foodData.products ? 6 : 15)) + local + offHtml;
+}
+
+function savedMealsSection(meals) {
+  if (!meals.length) return '';
+  return `<h4 class="mt-3 text-xs font-bold uppercase tracking-wide muted">Saved meals</h4>
+  <ul class="divide-y divide-slate-200 dark:divide-slate-800">${meals.map((sm) => `<li class="flex items-center gap-1">
+    <button class="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 text-left" data-food="log-meal" data-id="${sm.id}">
+      <span class="min-w-0">
+        <span class="block truncate font-medium">${esc(sm.name)}</span>
+        <span class="block truncate text-xs muted">${sm.items.length} item${sm.items.length === 1 ? '' : 's'} · ${fmtKg(sum(sm.items.map((i) => i.n.kcal)))} kcal</span>
+      </span>
+      <span class="shrink-0 text-2xl font-light text-indigo-600 dark:text-indigo-400">+</span>
+    </button>
+    <button class="icon-btn h-9 w-9" data-food="del-meal" data-id="${sm.id}" aria-label="Delete saved meal ${esc(sm.name)}">${ICON_X}</button>
+  </li>`).join('')}</ul>`;
+}
+
+function recipeStep() {
+  const r = modal.recipe;
+  return `${modalHead(r.id ? 'Edit recipe' : 'New recipe', true)}
+    <div class="grid grid-cols-[1fr_6rem] gap-3">
+      <label class="block"><span class="label">Name</span><input class="input" data-fr="name" maxlength="60" placeholder="e.g. Chicken chilli" value="${esc(r.name)}"></label>
+      <label class="block"><span class="label">Servings</span><input class="input text-center" type="number" inputmode="numeric" min="1" step="1" data-fr="servings" value="${esc(r.servings)}"></label>
+    </div>
+    <p class="label mt-4">Ingredients</p>
+    <ul class="divide-y divide-slate-200 dark:divide-slate-800">${r.items.map((it, k) => `<li class="flex items-center justify-between gap-2 py-2">
+      <span class="min-w-0">
+        <span class="block truncate font-medium">${esc(it.food.name)}</span>
+        <span class="text-xs muted">${esc(amountLabel({ foodId: it.food.id, qty: it.qty, unit: it.unit, g: it.g }))} · ${it.n.kcal} kcal</span>
+      </span>
+      <button class="icon-btn h-9 w-9" data-food="recipe-remove" data-k="${k}" aria-label="Remove ${esc(it.food.name)}">${ICON_X}</button>
+    </li>`).join('') || '<li class="py-2 text-sm muted">No ingredients yet. Add them as you would log food, weighed raw.</li>'}</ul>
+    <button class="btn-ghost mt-2 w-full py-2.5" data-food="recipe-add">+ Add ingredient</button>
+    <div id="fr-totals" class="mt-3">${recipeTotals()}</div>
+    <button class="btn-primary mt-4 w-full" data-food="recipe-save">Save recipe</button>`;
+}
+
+function recipeSums() {
+  const r = modal.recipe;
+  const servings = Math.max(1, parseInt(r.servings, 10) || 1);
+  const tot = Object.fromEntries(NKEYS.map((k) => [k, sum(r.items.map((i) => i.n[k] || 0))]));
+  return { servings, tot, g: sum(r.items.map((i) => i.g)) };
+}
+
+function recipeTotals() {
+  const { servings: s, tot, g } = recipeSums();
+  return `<div class="rounded-xl bg-indigo-500/10 p-3 text-sm">
+    <p><b>Per serving:</b> ${Math.round(tot.kcal / s)} kcal · P ${fmt(round1(tot.protein / s))} · C ${fmt(round1(tot.carbs / s))} · F ${fmt(round1(tot.fat / s))} g <span class="muted">(${fmt(round1(g / s))} g)</span></p>
+    <p class="mt-0.5 muted">Whole recipe: ${fmtKg(tot.kcal)} kcal · ${fmt(round1(g))} g</p>
+  </div>`;
 }
 
 function refreshFoodResults() {
@@ -1908,21 +2167,22 @@ function amountStep() {
   const m = modal, f = m.food;
   const units = unitsFor(f);
   const fav = state.food.favs.includes(f.id);
+  const forRecipe = m.target === 'recipe';
   return `${modalHead(esc(f.name), !m.entryId)}
-    <p class="-mt-2 mb-3 text-sm muted">${f.brand ? `${esc(f.brand)} · ` : ''}${srcLabel[f.src]}</p>
+    <p class="-mt-2 mb-3 text-sm muted">${f.brand ? `${esc(f.brand)} · ` : ''}${srcLabel[f.src]}${f.src === 'recipe' && !m.entryId && !forRecipe ? ` · <button class="link" data-food="recipe-edit">Edit recipe</button>` : ''}</p>
     <div class="grid grid-cols-[1fr_1.6fr] gap-2">
       <input class="input text-center text-lg font-semibold" type="number" inputmode="decimal" step="any" min="0" data-fs="qty" value="${esc(m.qty)}" aria-label="Amount">
       <select class="input" data-fs="unit" aria-label="Unit">${units.map((u, i) => `<option value="${i}" ${i === m.unit ? 'selected' : ''}>${u.label === 'g' ? 'grams (g / ml)' : `${esc(u.label)} (${fmt(u.g)} g)`}</option>`).join('')}</select>
     </div>
-    <label class="mt-3 block"><span class="label">Meal</span>
+    ${forRecipe ? '' : `<label class="mt-3 block"><span class="label">Meal</span>
       <select class="input" data-fs="meal">${MEALS.map(([k, l]) => `<option value="${k}" ${k === m.meal ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    </label>
+    </label>`}
     <div id="fs-preview" class="mt-3">${previewHtml()}</div>
     <p class="mt-2 text-xs muted">Per 100 g: ${Math.round(f.n.kcal)} kcal · P ${fmt(f.n.protein)} · C ${fmt(f.n.carbs)} · F ${fmt(f.n.fat)}</p>
     <div class="mt-4 flex gap-2">
-      <button class="btn-ghost shrink-0 px-4 ${fav ? 'text-amber-500' : ''}" data-food="fav" aria-label="${fav ? 'Remove from' : 'Add to'} favourites">${fav ? '★' : '☆'}</button>
+      ${forRecipe ? '' : `<button class="btn-ghost shrink-0 px-4 ${fav ? 'text-amber-500' : ''}" data-food="fav" aria-label="${fav ? 'Remove from' : 'Add to'} favourites">${fav ? '★' : '☆'}</button>`}
       ${m.entryId ? `<button class="btn-danger shrink-0" data-food="delete">Delete</button>` : ''}
-      <button class="btn-primary flex-1" data-food="save">${m.entryId ? 'Save' : `Add to ${MEAL_LABEL[m.meal]}`}</button>
+      <button class="btn-primary flex-1" data-food="save">${forRecipe ? 'Add to recipe' : m.entryId ? 'Save' : `Add to ${MEAL_LABEL[m.meal]}`}</button>
     </div>`;
 }
 
@@ -1979,6 +2239,7 @@ function customStep() {
 function foodSetupModal() {
   const p = state.food.profile || { sex: 'male', age: '', height: '', weight: '', activity: 1.55, goal: 'maintain' };
   const t = state.food.targets || {};
+  const pr = state.food.prefs;
   const num = (name, label, value, attrs = '') => `<label class="block"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" name="${name}" value="${value ?? ''}" ${attrs}></label>`;
   return `${modalHead('Targets &amp; profile')}
     <form id="food-setup" class="space-y-4" data-manual="${t.custom ? '1' : ''}">
@@ -2002,6 +2263,18 @@ function foodSetupModal() {
           ${num('carbs', 'Carbs (g)', t.carbs, 'data-target="1"')}${num('fat', 'Fat (g)', t.fat, 'data-target="1"')}
         </div>
         <p class="mt-2 text-xs muted">Worked out from your details. Protein is about 2 g per kg of bodyweight to support muscle, fat at least 25% of calories, and carbs make up the rest. You can type your own numbers. Fibre (30 g+), sugars (max 90 g), saturates (max ~11% of calories) and salt (max 6 g) follow UK guidance.</p>
+      </div>
+      <div class="space-y-3 rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
+        <label class="flex items-start justify-between gap-3">
+          <span><span class="block font-semibold">Eat more on training days</span><span class="text-xs muted">Moves calories (as carbs) from rest days to days with a workout in your Plan. Your weekly total stays the same.</span></span>
+          <input type="checkbox" name="trainingOn" class="mt-1 h-6 w-6 shrink-0 accent-indigo-600" ${pr.trainingOn ? 'checked' : ''}>
+        </label>
+        <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Extra on training days</span>
+          <select class="input py-2" name="trainingBoost">${[100, 150, 200, 250, 300].map((v) => `<option value="${v}" ${pr.trainingBoost === v ? 'selected' : ''}>+${v} kcal</option>`).join('')}</select>
+        </label>
+        <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Daily water target</span>
+          <select class="input py-2" name="water">${[1500, 1750, 2000, 2250, 2500, 2750, 3000, 3500, 4000].map((v) => `<option value="${v}" ${pr.water === v ? 'selected' : ''}>${fmtKg(v)} ml</option>`).join('')}</select>
+        </label>
       </div>
       <button type="submit" class="btn-primary w-full">Save targets</button>
     </form>`;
@@ -2201,6 +2474,11 @@ function saveFoodEntry() {
   const qty = parseFloat(m.qty);
   if (!(qty > 0)) return toast('Enter an amount');
   const g = round1(qty * u.g);
+  if (m.target === 'recipe') {
+    m.recipe.items.push({ food: f, qty, unit: u.label, g, n: scaleN(f.n, g) });
+    Object.assign(m, { step: 'recipe', target: null, query: '' });
+    return renderModal();
+  }
   if (f.src !== 'uk') state.food.foods[f.id] = f;
   const entry = { id: m.entryId || uid(), foodId: f.id, name: f.brand ? `${f.name} (${f.brand})` : f.name, meal: m.meal, qty, unit: u.label, g, n: scaleN(f.n, g), ts: Date.now() };
   putEntry(m.date, entry);
@@ -2257,7 +2535,85 @@ document.addEventListener('click', (e) => {
       renderModal();
       return;
     }
-    case 'back': Object.assign(modal, { step: 'search', msg: '' }); renderModal(); return;
+    case 'back':
+      if (modal.step === 'recipe') Object.assign(modal, { step: 'search', recipe: null, target: null });
+      else if (modal.step === 'search' && modal.target === 'recipe') Object.assign(modal, { step: 'recipe', target: null });
+      else Object.assign(modal, { step: 'search', msg: '' });
+      renderModal();
+      return;
+    case 'water': {
+      const ml = Math.max(0, (state.food.water[foodDate] || 0) + Number(b.dataset.ml));
+      if (ml) state.food.water[foodDate] = ml; else delete state.food.water[foodDate];
+      saveState(); render();
+      return;
+    }
+    case 'weight-save': {
+      const kg = parseFloat(document.getElementById('weight-input').value);
+      if (!(kg >= 20 && kg <= 400)) return toast('Enter your weight in kg');
+      state.food.weights[foodDate] = round1(kg);
+      saveState(); render(); toast('Weight logged');
+      return;
+    }
+    case 'weight-view': modal = { type: 'weight' }; renderModal(); return;
+    case 'weight-del':
+      if (!confirm('Delete this weigh-in?')) return;
+      delete state.food.weights[b.dataset.date];
+      saveState(); render();
+      return;
+    case 'checkin': applyCheckin(b.dataset.accept === '1'); saveState(); render(); toast(b.dataset.accept === '1' ? 'Target updated' : 'Check-in saved'); return;
+    case 'save-meal': {
+      const meal = b.dataset.meal;
+      const items = dayEntries(foodDate).filter((x) => x.meal === meal);
+      const name = (prompt('Name this meal so you can log it in one tap:', `My ${MEAL_LABEL[meal].toLowerCase()}`) || '').trim();
+      if (!name) return;
+      state.food.meals.push({ id: uid(), name: name.slice(0, 60), items: items.map(({ id, ts, meal: _m, ...rest }) => rest) });
+      saveState(); toast(`Saved “${name}”`);
+      return;
+    }
+    case 'log-meal': {
+      const sm = state.food.meals.find((x) => x.id === b.dataset.id);
+      if (!sm) return;
+      const list = (state.food.log[modal.date] ||= []);
+      sm.items.forEach((i) => list.push({ ...i, id: uid(), meal: modal.meal, ts: Date.now() }));
+      const meal = modal.meal;
+      modal = null; saveState(); render(); toast(`Added ${sm.name} to ${MEAL_LABEL[meal]}`);
+      return;
+    }
+    case 'del-meal': {
+      const sm = state.food.meals.find((x) => x.id === b.dataset.id);
+      if (!sm || !confirm(`Delete the saved meal “${sm.name}”? Logged food isn’t affected.`)) return;
+      state.food.meals = state.food.meals.filter((x) => x !== sm);
+      saveState(); refreshFoodResults();
+      return;
+    }
+    case 'recipe-new': Object.assign(modal, { step: 'recipe', target: null, recipe: { id: null, name: '', servings: '4', items: [] } }); renderModal(); return;
+    case 'recipe-add': Object.assign(modal, { step: 'search', target: 'recipe', query: '', off: { q: '', state: 'idle', items: [] } }); renderModal(); return;
+    case 'recipe-remove': modal.recipe.items.splice(Number(b.dataset.k), 1); renderModal(); return;
+    case 'recipe-edit': {
+      const f = modal.food;
+      modal.recipe = { id: f.id, name: f.name, servings: String(f.recipe.servings), items: f.recipe.items.map((i) => ({ ...i, n: scaleN(i.food.n, i.g) })) };
+      Object.assign(modal, { step: 'recipe', target: null });
+      renderModal();
+      return;
+    }
+    case 'recipe-save': {
+      const r = modal.recipe, name = r.name.trim();
+      if (!name) return toast('Give the recipe a name');
+      if (!r.items.length) return toast('Add at least one ingredient');
+      const { servings, tot, g } = recipeSums();
+      const food = {
+        id: r.id || `r:${uid()}`, src: 'recipe', name, brand: '',
+        n: Object.fromEntries(NKEYS.map((k) => [k, round1((tot[k] * 100) / g)])),
+        portions: [{ label: '1 serving', g: round1(g / servings) }],
+        recipe: { servings, items: r.items.map(({ food: ing, qty, unit, g: grams }) => ({ food: ing, qty, unit, g: grams })) },
+      };
+      state.food.foods[food.id] = food;
+      saveState();
+      Object.assign(modal, { recipe: null, target: null });
+      openAmount(food);
+      toast('Recipe saved');
+      return;
+    }
     case 'scan': modal.step = 'scan'; renderModal(); return;
     case 'lookup': lookupBarcode(document.querySelector('[data-fs=code]').value); return;
     case 'quick': Object.assign(modal, { step: 'quick', entryId: null, entry: null }); renderModal(); return;
@@ -2291,10 +2647,15 @@ document.addEventListener('input', (e) => {
     if (el.dataset.fs === 'meal') document.querySelector('[data-food=save]').textContent = modal.entryId ? 'Save' : `Add to ${MEAL_LABEL[modal.meal]}`;
     return;
   }
+  if (el.dataset.fr && modal?.recipe) {
+    modal.recipe[el.dataset.fr] = el.value;
+    document.getElementById('fr-totals').innerHTML = recipeTotals();
+    return;
+  }
   const form = el.closest?.('#food-setup');
   if (form) {
     if (el.dataset.target) form.dataset.manual = '1';
-    else if (form.dataset.manual !== '1') fillTargets(form);
+    else if (['sex', 'age', 'height', 'weight', 'activity', 'goal'].includes(el.name) && form.dataset.manual !== '1') fillTargets(form);
   }
 });
 
@@ -2320,6 +2681,7 @@ document.addEventListener('submit', (e) => {
     Object.assign(t, fixedTargets(t.kcal), { custom: form.dataset.manual === '1' });
     state.food.profile = p;
     state.food.targets = t;
+    Object.assign(state.food.prefs, { trainingOn: fd.get('trainingOn') === 'on', trainingBoost: Number(fd.get('trainingBoost')) || 200, water: Number(fd.get('water')) || 2500 });
     modal = null;
     saveState(); render(); toast('Targets saved');
   } else if (form.id === 'fq-form') {
