@@ -90,6 +90,9 @@
       <button class="nav-btn" data-action="nav" data-view="today">
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Workout
       </button>
+      <button class="nav-btn" data-action="nav" data-view="food">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a2 2 0 0 0 2 2v9M4 3v5M8 3v5M18 21V3c-2 1.5-3 4-3 7 0 1.5 1 2.5 3 2.5"/></svg>Food
+      </button>
       <button class="nav-btn" data-action="nav" data-view="plan">
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan
       </button>
@@ -429,9 +432,12 @@ function seedState() {
     routines: [{ id: uid(), name: 'Full Body', exerciseIds: exercises.map((e) => e.id) }],
     schedule: { weekly: {}, overrides: {} },
     settings: { barWeight: 20 },
+    food: emptyFood(),
     draft: null,
   };
 }
+
+const emptyFood = () => ({ profile: null, targets: null, foods: {}, log: {}, favs: [] });
 
 /** Accepts saved data from any version of the app and fills in new fields. */
 function migrate(d) {
@@ -441,6 +447,7 @@ function migrate(d) {
     routines: d.routines || [],
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
     settings: { barWeight: 20, ...(d.settings || {}) },
+    food: { ...emptyFood(), ...(d.food || {}) },
     draft: d.draft ? { routineId: null, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -587,7 +594,7 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke=
 
 function render() {
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const views = { today: todayView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
+  const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
   document.getElementById('view').innerHTML = views[view]();
   if (view === 'exercises') syncMachineToggle();
   if (view === 'stats') attachCharts();
@@ -1304,10 +1311,13 @@ function historyView() {
 // ----- Modals -----
 function renderModal() {
   const box = document.getElementById('modal');
+  if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal }[modal.type];
+  if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
+  if (modal.type === 'food' && modal.step === 'scan') startScanner();
 }
 
 const EQ_FILTERS = [['', 'All'], ['dumbbell', 'Dumbbell'], ['machine', 'Machine / cable'], ['barbell', 'Barbell']];
@@ -1453,6 +1463,763 @@ function summaryModal() {
     </div>` : ''}
     <button class="btn-primary mt-5 w-full" data-action="close-modal">Done</button>`;
 }
+
+// =========================================================================
+// Food tracker
+// =========================================================================
+const MEALS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snacks', 'Snacks']];
+const MEAL_LABEL = Object.fromEntries(MEALS);
+// key, label, kind: 'target' = aim to hit, 'min' = at least, 'max' = stay under
+const NUTRIENTS = [
+  ['kcal', 'Calories', 'target'], ['protein', 'Protein', 'target'], ['carbs', 'Carbs', 'target'], ['fat', 'Fat', 'target'],
+  ['fibre', 'Fibre', 'min'], ['sugar', 'Sugars', 'max'], ['satfat', 'Saturates', 'max'], ['salt', 'Salt', 'max'],
+];
+const NKEYS = NUTRIENTS.map((n) => n[0]);
+const ACTIVITY = [
+  [1.2, 'Mostly sitting, little exercise'], [1.375, 'Light: 1–3 workouts a week'], [1.55, 'Moderate: 3–5 workouts a week'],
+  [1.725, 'Very active: 6–7 workouts a week'], [1.9, 'Athlete or physical job'],
+];
+const GOALS = [['lose', -500, 'Lose ~0.5 kg a week'], ['lose-slow', -250, 'Lose ~0.25 kg a week'], ['maintain', 0, 'Maintain weight'], ['gain-slow', 250, 'Lean gain ~0.25 kg a week']];
+const OFF_FIELDS = 'code,product_name,generic_name,brands,nutriments,serving_size,serving_quantity';
+const SCANNER_SRC = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+
+const round1 = (x) => Math.round(x * 10) / 10;
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+/**
+ * Built-in UK basics, per 100 g (approximate reference values, UK label style:
+ * carbs exclude fibre). Columns: name | kcal | protein | carbs | sugars | fat |
+ * saturates | fibre | salt | portions as "label:grams;label:grams".
+ */
+const UK_FOODS = `
+Chicken breast, grilled, skinless|148|32|0|0|2.2|0.6|0|0.18|1 breast:140
+Chicken breast, raw, skinless|106|24|0|0|1.1|0.3|0|0.15|1 breast:170
+Chicken thigh, roasted, skinless|190|25|0|0|9.9|2.8|0|0.25|1 thigh:90
+Turkey breast, roasted|142|30|0|0|2|0.6|0|0.15
+Beef mince, 5% fat, raw|124|21|0|0|4.5|2|0|0.18
+Beef mince, 20% fat, raw|254|17|0|0|20.5|9|0|0.18
+Beef sirloin steak, grilled, lean|176|29|0|0|6.6|2.8|0|0.15|1 steak:200
+Pork loin chop, grilled, lean|184|31.6|0|0|6.4|2.2|0|0.17|1 chop:120
+Back bacon rashers, grilled|287|23.2|0|0|21.6|8|0|3.6|1 rasher:25
+Ham, sliced|107|18|1|1|3.3|1.1|0|2|1 slice:15
+Pork sausages, grilled|294|13.3|9.8|1.5|22.1|8|0.6|2|1 sausage:40
+Salmon fillet, baked|215|23|0|0|13.6|2.5|0|0.13|1 fillet:120
+Cod fillet, baked|96|21.4|0|0|1.2|0.2|0|0.35|1 fillet:140
+Tuna, canned in spring water, drained|109|25|0|0|1|0.3|0|0.75|1 can drained:112
+King prawns, cooked|77|17|0|0|0.9|0.2|0|1
+Smoked mackerel|354|18.9|0|0|30.9|6.3|0|2.8|1 fillet:80
+Egg, boiled|147|14.1|0|0|9.6|2.7|0|0.4|1 medium egg:50;1 large egg:58
+Egg, fried|179|13.6|0|0|13.9|3|0|0.4|1 medium egg:55
+Egg, scrambled with milk|160|11|1.5|1.5|12|3.5|0|0.5|2 eggs:120
+Egg white, raw|36|9|0|0|0.1|0|0|0.5|1 egg white:33
+Milk, semi-skimmed|46|3.6|4.7|4.7|1.7|1.1|0|0.11|1 glass (250 ml):250;Splash in tea (30 ml):30
+Milk, skimmed|34|3.5|5|5|0.1|0.1|0|0.11|1 glass (250 ml):250
+Milk, whole|63|3.4|4.6|4.6|3.6|2.3|0|0.11|1 glass (250 ml):250
+Oat drink, unsweetened|45|0.3|6.5|3.3|1.5|0.2|0.8|0.1|1 glass (250 ml):250
+Greek yoghurt, 0% fat|57|10.3|4|4|0.2|0.1|0|0.1|1 pot:170
+Greek yoghurt, 5% fat|93|9|3|3|5|3.4|0|0.1|1 pot:170
+Natural yoghurt, low fat|56|4.8|7.4|7|1|0.6|0|0.2|1 pot:150
+Skyr, plain|63|11|4|4|0.2|0.1|0|0.1|1 pot:150
+Cottage cheese|98|11|3.4|3.4|4.3|2.7|0|0.7|1 tub:300
+Cheddar cheese|416|25.4|0.1|0.1|34.9|21.7|0|1.8|1 slice:25;Matchbox-size piece:30
+Mozzarella|254|18.5|1|1|19.5|13|0|0.6|1 ball:125
+Feta|250|15.6|1.5|1.5|20.2|13.7|0|2.5
+Halloumi|313|21.3|1.6|1.6|24.5|16.4|0|2.7|1 slice:30
+Cream cheese, light|156|7.4|4|4|12|7.6|0|0.8|1 tbsp:30
+Butter, salted|744|0.6|0.6|0.6|82.2|52.1|0|1.6|1 tsp:5;Spread on toast:7
+Whey protein powder|400|78|8|5|6|3|0|0.5|1 scoop:30
+Porridge oats, dry|375|11|60.4|1.1|8.1|1.5|9|0.02|1 serving:40
+White bread|232|8.6|45|3.4|1.6|0.4|2.8|1|1 medium slice:36;1 thick slice:44
+Wholemeal bread|231|10|39|2.8|2.7|0.6|7|0.9|1 medium slice:40
+Bagel, plain|270|10|52|6|1.6|0.3|2.5|1|1 bagel:85
+Tortilla wrap, plain|296|8|50|2.5|6.5|2.8|2.6|1.1|1 wrap:62
+Pitta bread, white|256|9.2|51|2.4|1.3|0.2|2.6|0.9|1 pitta:60
+Crumpet|178|6|37|2|0.7|0.1|2|1.2|1 crumpet:55
+White rice, boiled|138|2.6|30.9|0.1|1.3|0.3|0.4|0|1 portion:180
+White rice, dry|356|7|79|0.2|0.8|0.2|1|0|1 portion:75
+Brown rice, boiled|141|2.6|32.1|0.5|1.1|0.3|1.5|0|1 portion:180
+Pasta, dry|355|12|71|3|1.5|0.3|3|0.01|1 portion:75
+Pasta, boiled|158|5.8|31|0.6|0.9|0.2|1.8|0|1 portion:200
+Wholewheat pasta, dry|348|13.5|64|3|2.5|0.4|9|0.02|1 portion:75
+Egg noodles, boiled|138|4.5|25.3|0.5|2.1|0.5|1.2|0.1|1 portion:180
+Couscous, cooked|112|3.8|23.2|0.1|0.2|0|1.4|0|1 portion:150
+Quinoa, cooked|120|4.4|21.3|0.9|1.9|0.2|2.8|0|1 portion:150
+Potatoes, boiled|72|1.8|17|0.7|0.1|0|1.2|0.01|1 portion:175
+Jacket potato, baked with skin|136|3.9|31.7|1.2|0.2|0|2.7|0.03|1 medium potato:180
+Sweet potato, baked|115|1.6|27.9|11.6|0.4|0.1|3.3|0.1|1 medium:150
+Oven chips|162|3.2|26|0.6|4.5|0.5|2.5|0.1|1 portion:165
+Cornflakes|378|7|84|8|0.9|0.2|3|1.1|1 bowl:30
+Wheat biscuits (e.g. Weetabix)|362|12|69|4.4|2|0.6|10|0.28|1 biscuit:18.75;2 biscuits:37.5
+Granola|450|9|60|20|18|4|7|0.1|1 bowl:45
+Rice cakes|387|8|81|0.5|2.8|0.6|3.5|0.1|1 rice cake:8
+Apple|51|0.6|11.6|11.6|0.1|0|1.8|0|1 medium apple:150
+Banana|95|1.2|20.9|18.1|0.3|0.1|1.4|0|1 medium banana (peeled):100
+Orange|37|1.1|8.5|8.5|0.1|0|1.7|0|1 medium orange (peeled):160
+Strawberries|30|0.6|6.1|6.1|0.5|0|1.4|0|1 handful:80
+Blueberries|57|0.7|12.1|10|0.3|0|2.4|0|1 handful:80
+Raspberries|32|1.4|5|4.4|0.3|0|6.5|0|1 handful:80
+Grapes|66|0.4|15.4|15.4|0.1|0|0.7|0|1 handful:80
+Pear|41|0.3|10|10|0.1|0|2.2|0|1 medium pear:170
+Pineapple|41|0.4|10.1|10.1|0.2|0|1.2|0|1 slice:80
+Mango|57|0.7|14.1|13.8|0.2|0.1|2.6|0|Half a mango:100
+Kiwi fruit|49|1.1|10.6|10.3|0.5|0.1|1.9|0|1 kiwi:60
+Avocado|190|1.9|1.9|0.5|19.5|4.1|6.7|0|Half an avocado:70
+Raisins|272|2.1|69.3|69.3|0.4|0.1|3.8|0.1|1 tbsp:15
+Dates, dried|270|3.3|68|68|0.2|0|4|0|1 date:8
+Broccoli, boiled|24|3.1|1.1|0.9|0.8|0.2|2.3|0|1 portion:80
+Spinach, raw|25|2.8|1.6|1.5|0.8|0.1|2.2|0.35|1 handful:30
+Carrots, raw|34|0.6|7.9|7.4|0.3|0.1|2.4|0.1|1 medium carrot:70
+Peas, frozen, boiled|69|6|9.7|2.7|0.9|0.2|5.1|0|1 portion:80
+Sweetcorn, canned, drained|99|2.9|17|4|1.2|0.2|3|0.4|1 portion:80
+Tomatoes|18|0.7|3.1|3.1|0.3|0.1|1.1|0.02|1 medium tomato:85
+Cucumber|10|0.7|1.5|1.4|0.1|0|0.6|0|1 portion:80
+Mixed salad leaves|15|1|1.7|1.7|0.4|0|1.2|0|1 bowl:50
+Onion|36|1.2|7.9|5.6|0.2|0|1.4|0|1 medium onion:150
+Red pepper|32|1|6.4|6.1|0.4|0.1|1.6|0|1 pepper:160
+Mushrooms|13|1.8|0.4|0.2|0.5|0.1|1.1|0|1 portion:80
+Green beans, boiled|25|1.7|3.5|2|0.1|0|3|0|1 portion:80
+Cauliflower, boiled|28|2.9|2.1|1.8|0.9|0.2|1.6|0|1 portion:80
+Courgette|18|1.8|1.8|1.7|0.4|0.1|1.2|0|1 courgette:200
+Baked beans in tomato sauce|78|4.7|12.5|4.6|0.2|0|3.8|0.6|Half a can:207;Full can:415
+Chickpeas, canned, drained|115|7.2|16.1|0.4|2.9|0.3|4.1|0.6|Half a can drained:120
+Kidney beans, canned, drained|100|6.9|13.6|1.8|0.6|0.1|6.2|0.5|Half a can drained:120
+Red lentils, boiled|100|7.6|17.5|0.8|0.4|0.1|3.6|0|1 portion:150
+Houmous|300|7.2|9.6|0.5|25|2.2|5.5|0.9|1 tbsp:30
+Tofu, firm|120|12.5|1|0.5|7.5|1.1|1|0|1 portion:100
+Peanut butter, smooth|609|25.8|12.5|6.6|51.8|10.1|5.9|0.9|1 tbsp:15
+Almonds|612|21.1|6.9|4.2|55.8|4.4|7.4|0|1 handful:30
+Cashew nuts|573|17.7|18.1|5.6|48.2|9.5|3.2|0.03|1 handful:30
+Walnuts|688|14.7|3.3|2.6|68.5|5.6|3.5|0|1 handful:30
+Peanuts, plain|563|25.8|12.5|6.2|46|8.2|6.5|0|1 handful:30
+Olive oil|899|0|0|0|99.9|14.3|0|0|1 tbsp:14;1 tsp:4.5
+Sunflower / vegetable oil|899|0|0|0|99.9|12|0|0|1 tbsp:14;1 tsp:4.5
+Mayonnaise|691|1.1|1.7|1.3|75.6|5.8|0|1.5|1 tbsp:15
+Light mayonnaise|260|0.6|7|3|25|2|0|1.4|1 tbsp:15
+Tomato ketchup|102|1.2|23.2|22.8|0.1|0|0.8|1.8|1 tbsp:15
+Honey|328|0.4|81.3|81.3|0|0|0|0|1 tsp:7
+Sugar, white|400|0|100|100|0|0|0|0|1 tsp:4
+Strawberry jam|251|0.4|62|60|0.1|0|0.9|0|1 tsp:10
+Tomato pasta sauce, jar|50|1.5|7|6|1.5|0.2|1.4|0.9|1 portion:125
+Green pesto|450|5|5|3|45|6|2|2.8|1 tbsp:15
+Soy sauce|77|10|3.2|0.6|0|0|0|16.9|1 tbsp:15
+Dark chocolate, 70%|598|7.8|33|28|43|26|11|0.02|1 square:10
+Milk chocolate|534|7.3|57|56|30|18|2|0.24|1 square:7
+Crisps, ready salted|530|6|53|0.6|32|2.6|4|1.3|1 bag:25
+Digestive biscuit|478|7.1|62.6|16.6|21|9.9|3.6|1|1 biscuit:15
+Margherita pizza|250|11.5|30|3.5|9|4.5|2|1.1|1 slice:80;Whole pizza:350
+Orange juice|43|0.7|9.2|9.2|0.1|0|0.4|0|1 glass (200 ml):200
+Cola, regular|42|0|10.6|10.6|0|0|0|0|1 can (330 ml):330
+Latte, semi-skimmed milk|41|2.8|4|4|1.5|1|0|0.1|Medium (350 ml):350
+Lager, 4%|43|0.3|3.6|0|0|0|0|0|1 pint:568
+Red wine|76|0.1|0.2|0.2|0|0|0|0|1 glass (175 ml):175
+`.trim().split('\n').map((line) => {
+  const [name, ...rest] = line.split('|');
+  const v = rest.slice(0, 8).map(Number);
+  const n = { kcal: v[0], protein: v[1], carbs: v[2], sugar: v[3], fat: v[4], satfat: v[5], fibre: v[6], salt: v[7] };
+  const portions = (rest[8] || '').split(';').filter(Boolean).map((p) => {
+    const [label, g] = p.split(':');
+    return { label, g: Number(g) };
+  });
+  return { id: `uk:${slug(name)}`, src: 'uk', name, brand: '', n, portions };
+});
+const UK_BY_ID = Object.fromEntries(UK_FOODS.map((f) => [f.id, f]));
+
+let foodDate = todayISO();
+let scanner = null;
+
+const foodById = (id) => UK_BY_ID[id] || state.food.foods[id] || null;
+const dayEntries = (date) => state.food.log[date] || [];
+const unitsFor = (food) => [{ label: 'g', g: 1 }, ...(food.portions || [])];
+const srcLabel = { uk: 'UK basics (typical values)', off: 'Open Food Facts', custom: 'My food' };
+
+/** Nutrients for a given weight of a food (per-100 g values scaled). */
+function scaleN(n, grams) {
+  const out = {};
+  NKEYS.forEach((k) => (out[k] = round1(((n[k] || 0) * grams) / 100)));
+  out.kcal = Math.round(((n.kcal || 0) * grams) / 100);
+  return out;
+}
+
+function dayTotals(date, meal) {
+  const t = Object.fromEntries(NKEYS.map((k) => [k, 0]));
+  dayEntries(date).filter((e) => !meal || e.meal === meal).forEach((e) => NKEYS.forEach((k) => (t[k] += e.n[k] || 0)));
+  NKEYS.forEach((k) => (t[k] = round1(t[k])));
+  return t;
+}
+
+/**
+ * Daily targets: Mifflin-St Jeor BMR × activity, adjusted for the goal.
+ * Protein first (g per kg), fat at least 25% of calories, carbs fill the rest.
+ */
+function calcTargets(p) {
+  const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'female' ? -161 : 5);
+  const delta = (GOALS.find((g) => g[0] === p.goal) || GOALS[2])[1];
+  const kcal = Math.max(p.sex === 'female' ? 1200 : 1500, Math.round((bmr * p.activity + delta) / 10) * 10);
+  const protein = Math.round(((p.goal.startsWith('lose') ? 2 : 1.8) * p.weight) / 5) * 5;
+  const fat = Math.max(Math.round((kcal * 0.25) / 9), Math.round(0.6 * p.weight));
+  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+  return { kcal, protein, carbs, fat, ...fixedTargets(kcal) };
+}
+const fixedTargets = (kcal) => ({ fibre: 30, sugar: 90, satfat: Math.round((kcal * 0.11) / 9), salt: 6 });
+
+function recentFoodIds() {
+  const ids = [];
+  Object.keys(state.food.log).sort().reverse().forEach((d) =>
+    [...state.food.log[d]].reverse().forEach((e) => { if (e.foodId && !ids.includes(e.foodId) && foodById(e.foodId)) ids.push(e.foodId); }));
+  return ids.slice(0, 15);
+}
+
+const amountLabel = (e) => (!e.foodId ? '' : e.unit === 'g' ? `${fmt(e.qty)} g` : `${fmt(e.qty)} × ${e.unit.replace(/^1 /, '')} (${fmt(e.g)} g)`);
+
+// ----- Food tab -----
+function foodView() {
+  const today = todayISO();
+  const t = state.food.targets;
+  const title = foodDate === today ? 'Today' : foodDate === addDays(today, -1) ? 'Yesterday' : fmtDay(foodDate);
+  let html = `<div class="mb-4 flex items-center justify-between">
+    <button class="icon-btn text-2xl" data-food="date" data-dir="-1" aria-label="Previous day">‹</button>
+    <div class="text-center">
+      <h2 class="text-xl font-bold">${title}</h2>
+      ${foodDate !== today ? `<button class="link text-xs" data-food="date" data-dir="0">Back to today</button>` : `<p class="text-xs muted">${fmtDay(today)}</p>`}
+    </div>
+    <button class="icon-btn text-2xl" data-food="date" data-dir="1" ${foodDate >= today ? 'disabled' : ''} aria-label="Next day">›</button>
+  </div>`;
+
+  html += t ? foodSummary(dayTotals(foodDate), t) : `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
+    <h3 class="font-semibold">Set your daily targets</h3>
+    <p class="mt-1 text-sm muted">Enter a few details and the app works out calories and macros for your goal.</p>
+    <button class="btn-primary mt-3 w-full" data-food="setup">Set up targets</button>
+  </section>`;
+
+  html += MEALS.map(mealCard).join('');
+  html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>`;
+  return html;
+}
+
+function foodSummary(tot, t) {
+  const left = Math.round(t.kcal - tot.kcal);
+  const R = 42, C = 2 * Math.PI * R;
+  const pct = Math.min(1, tot.kcal / t.kcal);
+  const bar = (k, label) => {
+    const v = tot[k], target = t[k];
+    return `<div>
+      <div class="flex items-baseline justify-between text-sm"><span class="font-medium">${label}</span><span class="tabular-nums"><b>${Math.round(v)}</b><span class="muted"> / ${target} g</span></span></div>
+      <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full bg-indigo-500" style="width:${Math.min(100, (v / target) * 100)}%"></div></div>
+    </div>`;
+  };
+  const small = NUTRIENTS.slice(4).map(([k, label, kind]) => {
+    const v = tot[k], target = t[k];
+    const over = kind === 'max' && v > target;
+    return `<div class="rounded-xl bg-slate-100 px-2 py-2 text-center dark:bg-slate-800/60">
+      <p class="text-[11px] font-semibold uppercase tracking-wide muted">${label}</p>
+      <p class="font-bold tabular-nums ${over ? 'text-rose-600 dark:text-rose-400' : ''}">${fmt(v)} g</p>
+      <p class="text-[10px] muted">${kind === 'max' ? `${over ? 'over ' : ''}max ${target}` : `aim ${target}+`}</p>
+    </div>`;
+  }).join('');
+  return `<section class="card mb-4">
+    <div class="flex items-center gap-4">
+      <div class="relative h-32 w-32 shrink-0">
+        <svg viewBox="0 0 100 100" class="h-full w-full -rotate-90">
+          <circle cx="50" cy="50" r="${R}" fill="none" stroke-width="9" class="stroke-slate-200 dark:stroke-slate-800"/>
+          <circle cx="50" cy="50" r="${R}" fill="none" stroke-width="9" stroke-linecap="round" stroke="${left < 0 ? '#f43f5e' : '#6366f1'}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct)}"/>
+        </svg>
+        <div class="absolute inset-0 flex flex-col items-center justify-center">
+          <span class="text-2xl font-extrabold tabular-nums">${fmtKg(Math.abs(left))}</span>
+          <span class="text-xs font-semibold ${left < 0 ? 'text-rose-600 dark:text-rose-400' : 'muted'}">kcal ${left < 0 ? 'over' : 'left'}</span>
+        </div>
+      </div>
+      <div class="min-w-0 flex-1 space-y-2.5">
+        <p class="text-sm muted"><b class="text-slate-900 dark:text-slate-100">${fmtKg(tot.kcal)}</b> eaten of ${fmtKg(t.kcal)}</p>
+        ${bar('protein', 'Protein')}${bar('carbs', 'Carbs')}${bar('fat', 'Fat')}
+      </div>
+    </div>
+    <div class="mt-4 grid grid-cols-4 gap-2">${small}</div>
+  </section>`;
+}
+
+function mealCard([key, label]) {
+  const entries = dayEntries(foodDate).filter((e) => e.meal === key);
+  const yesterday = dayEntries(addDays(foodDate, -1)).filter((e) => e.meal === key);
+  return `<section class="card mb-3">
+    <div class="flex items-center justify-between">
+      <h3 class="font-semibold">${label}</h3>
+      <span class="text-sm font-semibold tabular-nums">${fmtKg(sum(entries.map((e) => e.n.kcal)))} kcal</span>
+    </div>
+    ${entries.length ? `<ul class="mt-1 divide-y divide-slate-200 dark:divide-slate-800">${entries.map((e) => `<li>
+      <button class="flex w-full items-center justify-between gap-3 py-2 text-left" data-food="edit" data-id="${e.id}">
+        <span class="min-w-0">
+          <span class="block truncate font-medium">${esc(e.name)}</span>
+          <span class="block truncate text-xs muted">${e.foodId ? `${esc(amountLabel(e))} · ` : ''}P ${fmt(e.n.protein)} · C ${fmt(e.n.carbs)} · F ${fmt(e.n.fat)}</span>
+        </span>
+        <span class="shrink-0 font-semibold tabular-nums">${e.n.kcal}</span>
+      </button>
+    </li>`).join('')}</ul>` : ''}
+    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+      <button class="link" data-food="add" data-meal="${key}">+ Add food</button>
+      ${!entries.length && yesterday.length ? `<button class="link" data-food="copy" data-meal="${key}">Copy yesterday’s (${fmtKg(sum(yesterday.map((e) => e.n.kcal)))} kcal)</button>` : ''}
+    </div>
+  </section>`;
+}
+
+// ----- Food modals -----
+function modalHead(title, back) {
+  return `<div class="mb-3 flex items-center gap-2">
+    ${back ? `<button class="icon-btn -ml-2 text-2xl" data-food="back" aria-label="Back">‹</button>` : ''}
+    <h3 class="min-w-0 flex-1 truncate text-xl font-bold">${title}</h3>
+    <button class="icon-btn -mr-2" data-action="close-modal" aria-label="Close">${ICON_X}</button>
+  </div>`;
+}
+
+function foodModal() {
+  const m = modal;
+  if (m.step === 'amount') return amountStep();
+  if (m.step === 'scan') return `${modalHead('Scan a barcode', true)}
+    <div id="scanner" class="min-h-[220px] overflow-hidden rounded-xl bg-black"></div>
+    <p id="scan-status" class="mt-2 text-sm muted">Starting camera…</p>
+    <div class="mt-3 flex gap-2">
+      <input class="input" inputmode="numeric" placeholder="Or type the barcode number" data-fs="code" aria-label="Barcode number">
+      <button class="btn-primary shrink-0" data-food="lookup">Look up</button>
+    </div>`;
+  if (m.step === 'quick') return quickStep();
+  if (m.step === 'custom') return customStep();
+  return `${modalHead(`Add to ${MEAL_LABEL[m.meal]}`)}
+    <div class="flex gap-2">
+      <input class="input" type="search" enterkeyhint="search" placeholder="Search foods…" data-fs="query" value="${esc(m.query)}" aria-label="Search foods">
+      <button class="btn-primary shrink-0 px-3" data-food="scan" aria-label="Scan a barcode">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M11 8v8M14 8v8M17 8v8"/></svg>Scan
+      </button>
+    </div>
+    <div class="mt-2 grid grid-cols-2 gap-2">
+      <button class="btn-ghost py-2 text-sm" data-food="quick">Quick add calories</button>
+      <button class="btn-ghost py-2 text-sm" data-food="custom">Create a food</button>
+    </div>
+    <div id="fs-results" class="mt-3">${foodResults()}</div>`;
+}
+
+function foodRow(f) {
+  return `<li><button class="flex w-full items-center justify-between gap-3 py-2.5 text-left" data-food="pick" data-id="${esc(f.id)}">
+    <span class="min-w-0">
+      <span class="block truncate font-medium">${esc(f.name)}</span>
+      <span class="block truncate text-xs muted">${f.brand ? `${esc(f.brand)} · ` : ''}${Math.round(f.n.kcal)} kcal · P ${fmt(round1(f.n.protein))} g per 100 g</span>
+    </span>
+    <span class="shrink-0 text-2xl font-light text-indigo-600 dark:text-indigo-400">+</span>
+  </button></li>`;
+}
+
+const listSection = (title, foods) => (foods.length ? `<h4 class="mt-3 text-xs font-bold uppercase tracking-wide muted">${title}</h4>
+  <ul class="divide-y divide-slate-200 dark:divide-slate-800">${foods.map(foodRow).join('')}</ul>` : '');
+
+function matchFoods(foods, q) {
+  const words = q.split(/\s+/).filter(Boolean);
+  return foods
+    .filter((f) => { const s = `${f.name} ${f.brand || ''}`.toLowerCase(); return words.every((w) => s.includes(w)); })
+    .sort((a, b) => (b.name.toLowerCase().startsWith(words[0]) - a.name.toLowerCase().startsWith(words[0])) || a.name.length - b.name.length);
+}
+
+function foodResults() {
+  const q = modal.query.trim().toLowerCase();
+  const mine = Object.values(state.food.foods);
+  if (!q) {
+    const favs = state.food.favs.map(foodById).filter(Boolean);
+    const recent = recentFoodIds().filter((id) => !state.food.favs.includes(id)).map(foodById);
+    const custom = mine.filter((f) => f.src === 'custom' && !state.food.favs.includes(f.id));
+    const html = listSection('★ Favourites', favs) + listSection('Recent', recent) + listSection('My foods', custom);
+    return html || `<p class="rounded-xl bg-slate-100 p-4 text-sm muted dark:bg-slate-800/60">Search for a food, or scan a barcode. Foods you log will appear here for quick re-adding.</p>`;
+  }
+  const off = modal.off;
+  let offHtml;
+  if (off.q === q && off.state === 'done') {
+    offHtml = off.items.length ? listSection('UK shops &amp; brands', off.items) : '<p class="mt-3 text-sm muted">No UK products found. Try fewer words, or scan the barcode.</p>';
+  } else if (off.q === q && off.state === 'loading') {
+    offHtml = '<p class="mt-3 text-sm muted">Searching UK products…</p>';
+  } else {
+    offHtml = `${off.q === q && off.state === 'error' ? '<p class="mt-3 text-sm text-rose-600 dark:text-rose-400">Search failed. Check your connection and try again.</p>' : ''}
+      <button class="btn-ghost mt-3 w-full py-2.5 text-sm" data-food="off-search">Search UK shops &amp; brands for “${esc(modal.query.trim())}”</button>`;
+  }
+  return listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, 15)) + offHtml;
+}
+
+function refreshFoodResults() {
+  const el = document.getElementById('fs-results');
+  if (el) el.innerHTML = foodResults();
+}
+
+function amountStep() {
+  const m = modal, f = m.food;
+  const units = unitsFor(f);
+  const fav = state.food.favs.includes(f.id);
+  return `${modalHead(esc(f.name), !m.entryId)}
+    <p class="-mt-2 mb-3 text-sm muted">${f.brand ? `${esc(f.brand)} · ` : ''}${srcLabel[f.src]}</p>
+    <div class="grid grid-cols-[1fr_1.6fr] gap-2">
+      <input class="input text-center text-lg font-semibold" type="number" inputmode="decimal" step="any" min="0" data-fs="qty" value="${esc(m.qty)}" aria-label="Amount">
+      <select class="input" data-fs="unit" aria-label="Unit">${units.map((u, i) => `<option value="${i}" ${i === m.unit ? 'selected' : ''}>${u.label === 'g' ? 'grams (g / ml)' : `${esc(u.label)} (${fmt(u.g)} g)`}</option>`).join('')}</select>
+    </div>
+    <label class="mt-3 block"><span class="label">Meal</span>
+      <select class="input" data-fs="meal">${MEALS.map(([k, l]) => `<option value="${k}" ${k === m.meal ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    </label>
+    <div id="fs-preview" class="mt-3">${previewHtml()}</div>
+    <p class="mt-2 text-xs muted">Per 100 g: ${Math.round(f.n.kcal)} kcal · P ${fmt(f.n.protein)} · C ${fmt(f.n.carbs)} · F ${fmt(f.n.fat)}</p>
+    <div class="mt-4 flex gap-2">
+      <button class="btn-ghost shrink-0 px-4 ${fav ? 'text-amber-500' : ''}" data-food="fav" aria-label="${fav ? 'Remove from' : 'Add to'} favourites">${fav ? '★' : '☆'}</button>
+      ${m.entryId ? `<button class="btn-danger shrink-0" data-food="delete">Delete</button>` : ''}
+      <button class="btn-primary flex-1" data-food="save">${m.entryId ? 'Save' : `Add to ${MEAL_LABEL[m.meal]}`}</button>
+    </div>`;
+}
+
+function previewHtml() {
+  const m = modal, u = unitsFor(m.food)[m.unit] || { g: 1 };
+  const g = (parseFloat(m.qty) || 0) * u.g;
+  const n = scaleN(m.food.n, g);
+  return `<div class="rounded-xl bg-indigo-500/10 p-3">
+    <div class="flex items-baseline justify-between">
+      <span class="text-3xl font-extrabold tabular-nums">${n.kcal} <span class="text-base font-bold muted">kcal</span></span>
+      <span class="text-sm muted">${fmt(round1(g))} g</span>
+    </div>
+    <div class="mt-2 grid grid-cols-4 gap-2 text-center text-sm">
+      ${NUTRIENTS.slice(1).map(([k, label]) => `<div><p class="text-[11px] muted">${label}</p><p class="font-semibold tabular-nums">${fmt(n[k])} g</p></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function quickStep() {
+  const e = modal.entry || { name: '', n: {} };
+  const field = (k, label) => `<label class="block"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" name="${k}" value="${e.n[k] ?? ''}" ${k === 'kcal' ? 'required' : ''}></label>`;
+  return `${modalHead('Quick add', !modal.entryId)}
+    <form id="fq-form" class="space-y-3">
+      <label class="block"><span class="label">Description (optional)</span><input class="input" name="name" maxlength="60" placeholder="e.g. Meal deal" value="${esc(e.foodId ? '' : e.name === 'Quick add' ? '' : e.name)}"></label>
+      <div class="grid grid-cols-2 gap-3">${field('kcal', 'Calories (kcal)')}${field('protein', 'Protein (g)')}${field('carbs', 'Carbs (g)')}${field('fat', 'Fat (g)')}</div>
+      <label class="block"><span class="label">Meal</span><select class="input" name="meal">${MEALS.map(([k, l]) => `<option value="${k}" ${k === modal.meal ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <div class="flex gap-2">
+        ${modal.entryId ? `<button type="button" class="btn-danger" data-food="delete">Delete</button>` : ''}
+        <button type="submit" class="btn-primary flex-1">${modal.entryId ? 'Save' : 'Add'}</button>
+      </div>
+    </form>`;
+}
+
+function customStep() {
+  const field = (k, label, req) => `<label class="block"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" name="${k}" ${req ? 'required' : ''}></label>`;
+  return `${modalHead('Create a food', true)}
+    ${modal.msg ? `<p class="mb-3 rounded-xl bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">${esc(modal.msg)}</p>` : ''}
+    <form id="fc-form" class="space-y-3">
+      <label class="block"><span class="label">Name</span><input class="input" name="name" required maxlength="60" placeholder="e.g. Protein yoghurt"></label>
+      <label class="block"><span class="label">Brand (optional)</span><input class="input" name="brand" maxlength="40"></label>
+      <p class="text-sm font-semibold">Nutrition per 100 g / 100 ml <span class="font-normal muted">(from the label)</span></p>
+      <div class="grid grid-cols-2 gap-3">
+        ${field('kcal', 'Energy (kcal)', true)}${field('protein', 'Protein (g)')}${field('carbs', 'Carbohydrate (g)')}${field('sugar', 'of which sugars (g)')}
+        ${field('fat', 'Fat (g)')}${field('satfat', 'of which saturates (g)')}${field('fibre', 'Fibre (g)')}${field('salt', 'Salt (g)')}
+      </div>
+      <div class="grid grid-cols-[1fr_7rem] gap-3">
+        <label class="block"><span class="label">Serving name (optional)</span><input class="input" name="servingLabel" maxlength="30" placeholder="e.g. 1 pot"></label>
+        <label class="block"><span class="label">Serving (g)</span><input class="input" type="number" inputmode="decimal" step="any" min="0" name="servingG"></label>
+      </div>
+      <button type="submit" class="btn-primary w-full">Save food</button>
+    </form>`;
+}
+
+function foodSetupModal() {
+  const p = state.food.profile || { sex: 'male', age: '', height: '', weight: '', activity: 1.55, goal: 'maintain' };
+  const t = state.food.targets || {};
+  const num = (name, label, value, attrs = '') => `<label class="block"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" name="${name}" value="${value ?? ''}" ${attrs}></label>`;
+  return `${modalHead('Targets &amp; profile')}
+    <form id="food-setup" class="space-y-4" data-manual="${t.custom ? '1' : ''}">
+      <div>
+        <span class="label">Sex (used by the calorie formula)</span>
+        <div class="grid grid-cols-2 gap-2">
+          ${[['male', 'Male'], ['female', 'Female']].map(([v, l]) => `<label class="block"><input type="radio" name="sex" value="${v}" class="seg-input sr-only" ${p.sex === v ? 'checked' : ''}><span class="seg">${l}</span></label>`).join('')}
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3">${num('age', 'Age', p.age, 'required')}${num('height', 'Height (cm)', p.height, 'required')}${num('weight', 'Weight (kg)', p.weight, 'required')}</div>
+      <label class="block"><span class="label">Activity</span>
+        <select class="input" name="activity">${ACTIVITY.map(([v, l]) => `<option value="${v}" ${Number(p.activity) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </label>
+      <label class="block"><span class="label">Goal</span>
+        <select class="input" name="goal">${GOALS.map(([v, , l]) => `<option value="${v}" ${p.goal === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </label>
+      <div class="rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
+        <div class="mb-2 flex items-center justify-between"><span class="font-semibold">Daily targets</span><button type="button" class="link" data-food="calc">Recalculate</button></div>
+        <div class="grid grid-cols-2 gap-3">
+          ${num('kcal', 'Calories (kcal)', t.kcal, 'data-target="1"')}${num('protein', 'Protein (g)', t.protein, 'data-target="1"')}
+          ${num('carbs', 'Carbs (g)', t.carbs, 'data-target="1"')}${num('fat', 'Fat (g)', t.fat, 'data-target="1"')}
+        </div>
+        <p class="mt-2 text-xs muted">Worked out from your details. Protein is about 2 g per kg of bodyweight to support muscle, fat at least 25% of calories, and carbs make up the rest. You can type your own numbers. Fibre (30 g+), sugars (max 90 g), saturates (max ~11% of calories) and salt (max 6 g) follow UK guidance.</p>
+      </div>
+      <button type="submit" class="btn-primary w-full">Save targets</button>
+    </form>`;
+}
+
+function readProfile(form) {
+  const fd = new FormData(form);
+  const p = { sex: fd.get('sex') || 'male', age: Number(fd.get('age')), height: Number(fd.get('height')), weight: Number(fd.get('weight')), activity: Number(fd.get('activity')), goal: fd.get('goal') };
+  return p.age > 0 && p.height > 0 && p.weight > 0 ? p : null;
+}
+
+function fillTargets(form) {
+  const p = readProfile(form);
+  if (!p) return;
+  const t = calcTargets(p);
+  ['kcal', 'protein', 'carbs', 'fat'].forEach((k) => (form.elements[k].value = t[k]));
+}
+
+// ----- Open Food Facts & barcode scanning -----
+function offToFood(p) {
+  const nm = p?.nutriments || {};
+  let kcal = nm['energy-kcal_100g'];
+  if (kcal == null && nm.energy_100g != null) kcal = nm.energy_100g / 4.184; // kJ → kcal
+  if (kcal == null || !p.code) return null;
+  const num = (v) => round1(Number(v) || 0);
+  const servingG = Number(p.serving_quantity);
+  return {
+    id: `off:${p.code}`, src: 'off', code: String(p.code),
+    name: (p.product_name || p.generic_name || 'Unnamed product').trim(),
+    brand: (p.brands || '').split(',')[0].trim(),
+    n: {
+      kcal: num(kcal), protein: num(nm.proteins_100g), carbs: num(nm.carbohydrates_100g), sugar: num(nm.sugars_100g),
+      fat: num(nm.fat_100g), satfat: num(nm['saturated-fat_100g']), fibre: num(nm.fiber_100g),
+      salt: num(nm.salt_100g ?? (nm.sodium_100g != null ? nm.sodium_100g * 2.5 : 0)),
+    },
+    portions: servingG > 0 ? [{ label: '1 serving', g: servingG }] : [],
+  };
+}
+
+async function offSearch() {
+  const q = modal.query.trim().toLowerCase();
+  if (!q) return;
+  modal.off = { q, state: 'loading', items: [] };
+  refreshFoodResults();
+  try {
+    const url = `https://uk.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=30&fields=${OFF_FIELDS}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    const seen = new Set();
+    const items = (j.products || []).map(offToFood).filter((f) => f && !seen.has(f.id) && seen.add(f.id));
+    if (modal?.off?.q === q) { modal.off = { q, state: 'done', items }; refreshFoodResults(); }
+  } catch (err) {
+    if (modal?.off?.q === q) { modal.off.state = 'error'; refreshFoodResults(); }
+  }
+}
+
+function setScanStatus(text) {
+  const el = document.getElementById('scan-status');
+  if (el) el.textContent = text;
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (window.__Html5QrcodeLibrary__) return resolve();
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('script failed'));
+    document.head.appendChild(s);
+  });
+}
+
+async function startScanner() {
+  try { await loadScript(SCANNER_SRC); } catch (err) { return setScanStatus('Couldn’t load the scanner. Check your connection, or type the barcode below.'); }
+  if (modal?.step !== 'scan' || scanner) return;
+  const L = window.__Html5QrcodeLibrary__, F = L.Html5QrcodeSupportedFormats;
+  const s = new L.Html5Qrcode('scanner', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false });
+  scanner = s;
+  try {
+    await s.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 130 } }, (code) => { stopScanner(); lookupBarcode(code); }, () => {});
+    if (scanner !== s) s.stop().catch(() => {}); // closed while the camera was starting
+    else setScanStatus('Point the camera at the barcode.');
+  } catch (err) {
+    if (scanner === s) scanner = null;
+    setScanStatus('Camera not available. Allow camera access for this site, or type the barcode below.');
+  }
+}
+
+function stopScanner() {
+  if (!scanner) return;
+  const s = scanner;
+  scanner = null;
+  s.stop().then(() => s.clear()).catch(() => {});
+}
+
+function openAmount(food, entry) {
+  const units = unitsFor(food);
+  Object.assign(modal, {
+    step: 'amount', food, entryId: entry?.id || null,
+    unit: entry ? Math.max(0, units.findIndex((u) => u.label === entry.unit)) : units.length > 1 ? 1 : 0,
+    qty: entry ? String(entry.qty) : units.length > 1 ? '1' : '100',
+  });
+  if (entry) modal.meal = entry.meal;
+  renderModal();
+}
+
+async function lookupBarcode(raw) {
+  const code = String(raw).replace(/\D/g, '');
+  if (!code) return;
+  const known = Object.values(state.food.foods).find((f) => f.code === code);
+  if (known) return openAmount(known);
+  setScanStatus(`Looking up ${code}…`);
+  try {
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`);
+    const j = await r.json();
+    const f = j.status === 1 ? offToFood(j.product) : null;
+    if (modal?.type !== 'food') return;
+    if (f) openAmount(f);
+    else Object.assign(modal, { step: 'custom', code, msg: `Barcode ${code} isn’t in the database yet, or has no nutrition info. Add it from the label and it’ll scan instantly next time.` }), renderModal();
+  } catch (err) {
+    setScanStatus('Lookup failed. Check your connection and try again.');
+  }
+}
+
+// ----- Food actions -----
+function openFoodModal(meal) {
+  modal = { type: 'food', step: 'search', meal, date: foodDate, query: '', off: { q: '', state: 'idle', items: [] } };
+  renderModal();
+}
+
+function saveFoodEntry() {
+  const m = modal, f = m.food;
+  const u = unitsFor(f)[m.unit] || { label: 'g', g: 1 };
+  const qty = parseFloat(m.qty);
+  if (!(qty > 0)) return toast('Enter an amount');
+  const g = round1(qty * u.g);
+  if (f.src !== 'uk') state.food.foods[f.id] = f;
+  const entry = { id: m.entryId || uid(), foodId: f.id, name: f.brand ? `${f.name} (${f.brand})` : f.name, meal: m.meal, qty, unit: u.label, g, n: scaleN(f.n, g), ts: Date.now() };
+  putEntry(m.date, entry);
+  toast(m.entryId ? 'Saved' : `Added to ${MEAL_LABEL[m.meal]}`);
+}
+
+function putEntry(date, entry) {
+  const list = (state.food.log[date] ||= []);
+  const i = list.findIndex((e) => e.id === entry.id);
+  if (i >= 0) list[i] = { ...entry, ts: list[i].ts }; else list.push(entry);
+  modal = null;
+  saveState();
+  render();
+}
+
+function deleteFoodEntry() {
+  state.food.log[modal.date] = dayEntries(modal.date).filter((e) => e.id !== modal.entryId);
+  if (!state.food.log[modal.date].length) delete state.food.log[modal.date];
+  modal = null;
+  saveState();
+  render();
+  toast('Removed');
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-food]');
+  if (!b) return;
+  const action = b.dataset.food;
+  switch (action) {
+    case 'date': {
+      const dir = Number(b.dataset.dir);
+      foodDate = dir ? addDays(foodDate, dir) : todayISO();
+      if (foodDate > todayISO()) foodDate = todayISO();
+      render();
+      return;
+    }
+    case 'setup': modal = { type: 'food-setup' }; renderModal(); return;
+    case 'calc': { const form = document.getElementById('food-setup'); form.dataset.manual = ''; fillTargets(form); return; }
+    case 'add': openFoodModal(b.dataset.meal); return;
+    case 'copy': {
+      const meal = b.dataset.meal;
+      dayEntries(addDays(foodDate, -1)).filter((x) => x.meal === meal)
+        .forEach((x) => (state.food.log[foodDate] ||= []).push({ ...x, id: uid(), ts: Date.now() }));
+      saveState(); render(); toast(`Copied yesterday’s ${MEAL_LABEL[meal].toLowerCase()}`);
+      return;
+    }
+    case 'edit': {
+      const entry = dayEntries(foodDate).find((x) => x.id === b.dataset.id);
+      if (!entry) return;
+      modal = { type: 'food', meal: entry.meal, date: foodDate, query: '', off: { q: '', state: 'idle', items: [] } };
+      const food = entry.foodId && foodById(entry.foodId);
+      if (food) return openAmount(food, entry);
+      Object.assign(modal, { step: 'quick', entryId: entry.id, entry });
+      renderModal();
+      return;
+    }
+    case 'back': Object.assign(modal, { step: 'search', msg: '' }); renderModal(); return;
+    case 'scan': modal.step = 'scan'; renderModal(); return;
+    case 'lookup': lookupBarcode(document.querySelector('[data-fs=code]').value); return;
+    case 'quick': Object.assign(modal, { step: 'quick', entryId: null, entry: null }); renderModal(); return;
+    case 'custom': Object.assign(modal, { step: 'custom', code: '', msg: '' }); renderModal(); return;
+    case 'off-search': offSearch(); return;
+    case 'pick': {
+      const id = b.dataset.id;
+      const food = foodById(id) || modal.off.items.find((x) => x.id === id);
+      if (food) openAmount(food);
+      return;
+    }
+    case 'fav': {
+      const id = modal.food.id, favs = state.food.favs;
+      if (favs.includes(id)) favs.splice(favs.indexOf(id), 1);
+      else { favs.push(id); if (modal.food.src !== 'uk') state.food.foods[id] = modal.food; }
+      saveState(); renderModal();
+      return;
+    }
+    case 'save': saveFoodEntry(); return;
+    case 'delete': deleteFoodEntry(); return;
+  }
+});
+
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.dataset.fs && modal?.type === 'food') {
+    if (el.dataset.fs === 'code') return;
+    modal[el.dataset.fs] = el.dataset.fs === 'unit' ? Number(el.value) : el.value;
+    if (el.dataset.fs === 'query') refreshFoodResults();
+    if (el.dataset.fs === 'qty' || el.dataset.fs === 'unit') document.getElementById('fs-preview').innerHTML = previewHtml();
+    if (el.dataset.fs === 'meal') document.querySelector('[data-food=save]').textContent = modal.entryId ? 'Save' : `Add to ${MEAL_LABEL[modal.meal]}`;
+    return;
+  }
+  const form = el.closest?.('#food-setup');
+  if (form) {
+    if (el.dataset.target) form.dataset.manual = '1';
+    else if (form.dataset.manual !== '1') fillTargets(form);
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.target.dataset?.fs === 'query') { e.preventDefault(); offSearch(); }
+  if (e.target.dataset?.fs === 'code') { e.preventDefault(); lookupBarcode(e.target.value); }
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  if (!['food-setup', 'fq-form', 'fc-form'].includes(form.id)) return;
+  e.preventDefault();
+  const fd = new FormData(form);
+  const num = (k) => round1(Math.max(0, parseFloat(fd.get(k)) || 0));
+
+  if (form.id === 'food-setup') {
+    const p = readProfile(form);
+    if (!p) return toast('Enter your age, height and weight');
+    const auto = calcTargets(p);
+    const t = { ...auto };
+    ['kcal', 'protein', 'carbs', 'fat'].forEach((k) => { const v = parseFloat(fd.get(k)); if (v > 0) t[k] = Math.round(v); });
+    Object.assign(t, fixedTargets(t.kcal), { custom: form.dataset.manual === '1' });
+    state.food.profile = p;
+    state.food.targets = t;
+    modal = null;
+    saveState(); render(); toast('Targets saved');
+  } else if (form.id === 'fq-form') {
+    const kcal = Math.round(num('kcal'));
+    if (!kcal) return toast('Enter the calories');
+    const n = { ...Object.fromEntries(NKEYS.map((k) => [k, 0])), kcal, protein: num('protein'), carbs: num('carbs'), fat: num('fat') };
+    putEntry(modal.date, { id: modal.entryId || uid(), foodId: null, name: String(fd.get('name')).trim() || 'Quick add', meal: fd.get('meal'), qty: 1, unit: '', g: 0, n, ts: Date.now() });
+    toast('Added');
+  } else {
+    const name = String(fd.get('name')).trim();
+    if (!name) return toast('Give the food a name');
+    const servingG = num('servingG');
+    const food = {
+      id: `c:${uid()}`, src: 'custom', name, brand: String(fd.get('brand')).trim(), code: modal.code || '',
+      n: Object.fromEntries(NKEYS.map((k) => [k, num(k)])),
+      portions: servingG > 0 ? [{ label: String(fd.get('servingLabel')).trim() || '1 serving', g: servingG }] : [],
+    };
+    state.food.foods[food.id] = food;
+    saveState();
+    openAmount(food);
+  }
+});
 
 // ---------- Actions --------------------------------------------------------
 function finishWorkout() {
