@@ -1831,9 +1831,9 @@ function foodResults() {
   if (off.q === q && off.state === 'done') {
     offHtml = off.items.length ? listSection('UK shops &amp; brands', off.items) : '<p class="mt-3 text-sm muted">No UK products found. Try fewer words, or scan the barcode.</p>';
   } else if (off.q === q && off.state === 'loading') {
-    offHtml = '<p class="mt-3 text-sm muted">Searching UK products…</p>';
+    offHtml = `<p class="mt-3 text-sm muted">${off.retrying ? 'Food database is busy, retrying in a few seconds…' : 'Searching UK products…'}</p>`;
   } else {
-    offHtml = `${off.q === q && off.state === 'error' ? `<p class="mt-3 text-sm text-rose-600 dark:text-rose-400">Shop search isn’t responding right now. Try again in a minute, or scan the barcode instead.</p><p class="mt-1 text-xs muted">Details: ${esc(off.reason || '')}</p>` : ''}
+    offHtml = `${off.q === q && off.state === 'error' ? `<p class="mt-3 text-sm text-rose-600 dark:text-rose-400">The food database is busy (it limits how often you can search). Wait a minute and try again, or scan the barcode instead.</p><p class="mt-1 text-xs muted">Details: ${esc(off.reason || '')}</p>` : ''}
       <button class="btn-ghost mt-3 w-full py-2.5 text-sm" data-food="off-search">Search UK shops &amp; brands for “${esc(modal.query.trim())}”</button>`;
   }
   return listSection('Your foods', matchFoods(mine, q).slice(0, 8)) + listSection('UK basics', matchFoods(UK_FOODS, q).slice(0, 15)) + offHtml;
@@ -1982,7 +1982,7 @@ function offToFood(p) {
 }
 
 /** Fetch JSON with a timeout; throws a short, human-readable reason on failure. */
-async function getJSON(url, ms = 12000) {
+async function getJSON(url, ms = 20000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -2002,25 +2002,59 @@ const OFF_SEARCHES = [
   ['classic', (q) => `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=30&tagtype_0=countries&tag_contains_0=contains&tag_0=united-kingdom&fields=${OFF_FIELDS}`, (j) => j.products],
 ];
 
-async function offSearch() {
-  const q = modal.query.trim().toLowerCase();
-  if (!q) return;
-  modal.off = { q, state: 'loading', items: [] };
-  refreshFoodResults();
+// Search results are remembered for a day: OFF allows only ~10 searches a minute.
+const OFF_CACHE_KEY = 'pot.offcache';
+const OFF_CACHE_MS = 24 * 3600 * 1000;
+function offCacheGet(q) {
+  try {
+    const hit = JSON.parse(localStorage.getItem(OFF_CACHE_KEY) || '{}')[q];
+    return hit && Date.now() - hit.at < OFF_CACHE_MS ? hit.items : null;
+  } catch (err) { return null; }
+}
+function offCachePut(q, items) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(OFF_CACHE_KEY) || '{}');
+    cache[q] = { at: Date.now(), items };
+    const keys = Object.keys(cache).sort((a, b) => cache[b].at - cache[a].at);
+    keys.slice(40).forEach((k) => delete cache[k]);
+    localStorage.setItem(OFF_CACHE_KEY, JSON.stringify(cache));
+  } catch (err) { /* cache is optional */ }
+}
+
+async function searchOFF(q) {
   const reasons = [];
   for (const [name, url, pick] of OFF_SEARCHES) {
     try {
       const list = pick(await getJSON(url(q)));
       if (!Array.isArray(list)) throw new Error('unexpected reply');
       const seen = new Set();
-      const items = list.map(offToFood).filter((f) => f && !seen.has(f.id) && seen.add(f.id));
-      if (modal?.off?.q === q) { modal.off = { q, state: 'done', items }; refreshFoodResults(); }
-      return;
+      return { items: list.map(offToFood).filter((f) => f && !seen.has(f.id) && seen.add(f.id)) };
     } catch (err) {
       reasons.push(`${name}: ${err.message}`);
     }
   }
-  if (modal?.off?.q === q) { modal.off = { q, state: 'error', items: [], reason: reasons.join(' · ') }; refreshFoodResults(); }
+  return { reason: reasons.join(' · ') };
+}
+
+async function offSearch() {
+  const q = modal.query.trim().toLowerCase();
+  if (!q || (modal.off.q === q && modal.off.state === 'loading')) return;
+  const done = (patch) => { if (modal?.off?.q === q) { modal.off = { q, ...patch }; refreshFoodResults(); } };
+  const cached = offCacheGet(q);
+  if (cached) { modal.off = { q, state: 'done', items: cached }; return refreshFoodResults(); }
+
+  modal.off = { q, state: 'loading', items: [] };
+  refreshFoodResults();
+  let res = await searchOFF(q);
+  if (!res.items && modal?.off?.q === q) {
+    // Usually the per-minute limit: wait briefly and try once more.
+    modal.off.retrying = true; refreshFoodResults();
+    await new Promise((r) => setTimeout(r, 6000));
+    if (modal?.off?.q !== q) return;
+    res = await searchOFF(q);
+  }
+  if (res.items) { offCachePut(q, res.items); done({ state: 'done', items: res.items }); }
+  else done({ state: 'error', items: [], reason: res.reason });
 }
 
 function setScanStatus(text) {
