@@ -112,6 +112,10 @@
     <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
   </div>
 
+  <button id="update-banner" class="fixed inset-x-0 top-16 z-50 mx-auto hidden w-[calc(100%-2rem)] max-w-md rounded-xl bg-indigo-600 px-4 py-3 text-left text-sm font-semibold text-white shadow-lg" data-action="apply-update">
+    A new version of the app is ready. <span class="underline">Tap to update</span>
+  </button>
+
   <div id="toast" class="pointer-events-none fixed inset-x-0 top-16 z-50 flex justify-center px-4 opacity-0 transition-opacity duration-300">
     <div id="toast-msg" class="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"></div>
   </div>
@@ -124,6 +128,7 @@
    ========================================================================= */
 
 const STORE_KEY = 'pot.v1';
+const SELF_CODE = document.currentScript?.textContent || ''; // used to spot newer published versions
 const MAX_ROUTINES = 5;
 const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Core'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -3035,7 +3040,33 @@ document.addEventListener('submit', (e) => {
   render();
 });
 
+// ---------- Update notice ----------------------------------------------------
+// Phones can keep running a cached copy of the page. Compare this page's code
+// with the code in a fresh copy from the server and offer a one-tap update.
+let lastUpdateCheck = 0;
+async function checkForUpdate() {
+  if (location.protocol === 'file:' || !SELF_CODE || Date.now() - lastUpdateCheck < 5 * 60 * 1000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const r = await fetch(location.pathname, { cache: 'no-store' });
+    if (!r.ok) return;
+    const html = await r.text();
+    const open = '<scr' + 'ipt>', close = '</scr' + 'ipt>'; // split so this script doesn't end itself
+    const end = html.lastIndexOf(close), start = html.lastIndexOf(open, end);
+    if (start < 0 || end < start) return;
+    if (html.slice(start + open.length, end) !== SELF_CODE) document.getElementById('update-banner').classList.remove('hidden');
+  } catch (err) { /* offline: try again later */ }
+}
+
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-action=apply-update]')) return;
+  try { await fetch(location.pathname, { cache: 'reload' }); } catch (err) { /* reload anyway */ }
+  location.reload();
+});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+
 render();
+checkForUpdate();
 </script>
 </body>
 </html>
