@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#020617">
+  <title>Overload Tracker</title>
+  <script>
+    // Apply the saved theme before first paint (dark by default).
+    try {
+      if (localStorage.getItem('pot.theme') === 'light') document.documentElement.classList.remove('dark');
+    } catch (e) {}
+  </script>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    if (window.tailwind) tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { fontFamily: { sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] } } }
+    };
+  </script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .card { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+      .muted { @apply text-slate-500 dark:text-slate-400; }
+      .input { @apply w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600; }
+      .label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
+      .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold transition active:scale-[0.98] disabled:opacity-50; }
+      .btn-primary { @apply btn bg-indigo-600 text-white hover:bg-indigo-500; }
+      .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-500; }
+      .btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+      .btn-danger { @apply btn bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400; }
+      .icon-btn { @apply inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 active:scale-95 dark:text-slate-400 dark:hover:bg-slate-800; }
+      .seg { @apply flex cursor-pointer items-center justify-center rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
+      .seg-input:checked + .seg { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
+      .set-row { @apply grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] items-center gap-2 rounded-xl px-1 py-1 transition; }
+      .set-row.done { @apply bg-emerald-500/10; }
+      .check { @apply inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-lg font-bold text-slate-400 transition active:scale-95 dark:border-slate-700 dark:text-slate-500; }
+      .set-row.done .check { @apply border-emerald-500 bg-emerald-500 text-white; }
+      .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
+      .nav-btn { @apply flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-semibold text-slate-500 transition dark:text-slate-400; }
+      .nav-btn.active { @apply text-indigo-600 dark:text-indigo-400; }
+    }
+    input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+  <header class="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+    <div class="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
+      <div class="flex items-center gap-2">
+        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white">
+          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>
+        </div>
+        <div>
+          <h1 class="text-base font-bold leading-tight">Overload Tracker</h1>
+          <p class="text-xs muted leading-tight">Double progression, automated</p>
+        </div>
+      </div>
+      <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle light/dark mode">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="view" class="mx-auto max-w-xl px-4 pb-32 pt-4"></main>
+
+  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95" style="padding-bottom: env(safe-area-inset-bottom)">
+    <div class="mx-auto flex max-w-xl">
+      <button class="nav-btn" data-action="nav" data-view="today">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Workout
+      </button>
+      <button class="nav-btn" data-action="nav" data-view="exercises">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Exercises
+      </button>
+      <button class="nav-btn" data-action="nav" data-view="history">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History
+      </button>
+    </div>
+  </nav>
+
+  <div id="toast" class="pointer-events-none fixed inset-x-0 bottom-24 z-30 flex justify-center px-4 opacity-0 transition-opacity duration-300">
+    <div id="toast-msg" class="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"></div>
+  </div>
+
+  <input type="file" id="import-file" accept="application/json,.json" class="hidden">
+
+<script>
+/* =========================================================================
+   Overload Tracker — automatic progressive overload (double progression)
+   ========================================================================= */
+
+const STORE_KEY = 'pot.v1';
+
+// ---------- Equipment & rounding ----------------------------------------
+const EQUIPMENT = {
+  dumbbell: { label: 'Dumbbell', short: 'DB' },
+  machine:  { label: 'Machine',  short: 'MC' },
+  barbell:  { label: 'Barbell',  short: 'BB' },
+};
+
+const round2 = (x) => Math.round(x * 100) / 100;
+const sum = (arr) => arr.reduce((a, b) => a + b, 0);
+
+/** Smallest realistic load jump for this exercise's equipment. */
+function stepFor(ex) {
+  if (ex.type === 'dumbbell') return 2;
+  if (ex.type === 'machine') return ex.machineStep === 3 ? 3 : 4;
+  return 2.5; // barbell / plates
+}
+
+/** Round a weight to the nearest equipment step (never negative). */
+function roundToStep(weight, ex) {
+  const step = stepFor(ex);
+  return round2(Math.max(0, Math.round(weight / step) * step));
+}
+
+function eqLabel(ex) {
+  if (ex.type === 'machine') return `Machine · ${stepFor(ex)}kg steps`;
+  if (ex.type === 'dumbbell') return 'Dumbbell · 2kg steps';
+  return 'Barbell · 2.5kg steps';
+}
+
+// ---------- Progressive overload engine ----------------------------------
+
+/** Normalise logged sets: numeric weight/reps, drop empty rows. */
+function cleanSets(sets, fallbackWeight = NaN) {
+  return sets
+    .map((s) => {
+      const w = s.weight === '' || s.weight == null ? fallbackWeight : parseFloat(s.weight);
+      return { weight: round2(w), reps: parseInt(s.reps, 10) };
+    })
+    .filter((s) => Number.isFinite(s.weight) && s.weight >= 0 && s.reps > 0);
+}
+
+/**
+ * Evaluate one session. Working sets = the sets done at the heaviest weight
+ * (lighter sets are treated as warm-ups).
+ */
+function evaluate(ex, sets) {
+  const top = Math.max(...sets.map((s) => s.weight));
+  const working = sets.filter((s) => s.weight === top);
+  const reps = working.map((s) => s.reps);
+  const total = sum(reps);
+  const enoughSets = working.length >= ex.sets;
+  const hitCeiling = enoughSets && reps.every((r) => r >= ex.repMax);
+  return { top, working, reps, total, enoughSets, hitCeiling };
+}
+
+function sessionsFor(exId) {
+  return state.history
+    .filter((h) => h.exerciseId === exId && h.sets.length)
+    .sort((a, b) => (b.date === a.date ? b.ts - a.ts : b.date < a.date ? -1 : 1));
+}
+
+/**
+ * Next Session Predictor — Double Progression.
+ * Rule 1: every working set hit the top of the rep range → add the smallest
+ *         equipment increment, reset reps to the bottom of the range.
+ * Rule 2: otherwise keep the weight and beat last session's rep total by ≥ 1.
+ */
+function predict(ex) {
+  const last = sessionsFor(ex.id)[0];
+  const step = stepFor(ex);
+
+  if (!last) {
+    const reps = Array(ex.sets).fill(ex.repMin);
+    return {
+      rule: 'start', weight: roundToStep(ex.startWeight || 0, ex), reps, total: sum(reps), last: null,
+      reason: `First session. Start at ${ex.repMin} reps per set and build towards ${ex.repMax}.`,
+    };
+  }
+
+  const ev = evaluate(ex, last.sets);
+
+  if (ev.hitCeiling) {
+    const reps = Array(ex.sets).fill(ex.repMin);
+    return {
+      rule: 'up', weight: round2(roundToStep(ev.top, ex) + step), reps, total: sum(reps), last, ev,
+      reason: `You hit ${ex.repMax} reps on all ${ev.working.length} working sets at ${fmt(ev.top)} kg. Weight +${fmt(step)} kg, reps reset to ${ex.repMin}.`,
+    };
+  }
+
+  // Rule 2: same weight, beat the previous rep total by at least one rep.
+  const reps = ev.reps.slice();
+  while (reps.length < ex.sets) reps.push(ex.repMin); // finish the missing working sets
+  if (sum(reps) <= ev.total) {
+    // Add one rep to the weakest set that still has room under the ceiling.
+    let idx = -1;
+    reps.forEach((r, i) => { if (r < ex.repMax && (idx === -1 || r < reps[idx])) idx = i; });
+    if (idx === -1) idx = reps.length - 1;
+    reps[idx] += 1;
+  }
+  const total = Math.max(sum(reps), ev.total + 1);
+
+  let reason = `Not every set reached ${ex.repMax}. Keep ${fmt(ev.top)} kg and beat last session's ${ev.total} total reps (aim for ${total}+).`;
+  if (!ev.enoughSets) reason += ` Complete all ${ex.sets} working sets to unlock a weight increase.`;
+  const belowRange = ev.reps.every((r) => r < ex.repMin);
+
+  return { rule: 'reps', weight: ev.top, reps, total, last, ev, reason, belowRange };
+}
+
+// ---------- State & persistence -----------------------------------------
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const todayISO = () => {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+
+function seedState() {
+  const ex = (name, type, repMin, repMax, sets, startWeight, machineStep = 4) =>
+    ({ id: uid(), name, type, machineStep, repMin, repMax, sets, startWeight });
+  return {
+    exercises: [
+      ex('Barbell Back Squat', 'barbell', 5, 8, 3, 60),
+      ex('Dumbbell Bench Press', 'dumbbell', 8, 12, 3, 20),
+      ex('Lat Pulldown', 'machine', 8, 12, 3, 45, 3),
+      ex('Leg Press', 'machine', 10, 15, 3, 100, 4),
+    ],
+    history: [],
+    draft: null,
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return { exercises: d.exercises || [], history: d.history || [], draft: d.draft || null };
+    }
+  } catch (e) { /* fall through to seed */ }
+  return seedState();
+}
+
+function saveState() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  catch (e) { toast('Could not save to this browser’s storage'); }
+}
+
+let state = loadState();
+let view = 'today';
+let editingId = null;
+
+const exById = (id) => state.exercises.find((e) => e.id === id);
+
+function ensureDraft() {
+  if (!state.draft) state.draft = { date: todayISO(), entries: [] };
+  return state.draft;
+}
+
+function addEntry(exId) {
+  const ex = exById(exId);
+  if (!ex) return;
+  const p = predict(ex);
+  ensureDraft().entries.push({
+    exerciseId: exId,
+    sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })),
+  });
+}
+
+// ---------- Helpers ------------------------------------------------------
+const fmt = (w) => String(round2(w));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDate = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.style.opacity = '0'), 2600);
+}
+
+const RULE_BADGE = {
+  start: ['First session', 'bg-sky-500/15 text-sky-600 dark:text-sky-300'],
+  up:    ['Weight up',     'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'],
+  reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
+};
+
+function badge(rule) {
+  const [text, cls] = RULE_BADGE[rule];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+function lastLine(p) {
+  if (!p.last) return '';
+  const sets = p.last.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(', ');
+  return `<p class="mt-2 text-xs muted">Last (${fmtDate(p.last.date)}): ${sets}</p>`;
+}
+
+// ---------- Views ----------------------------------------------------------
+function render() {
+  document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  const el = document.getElementById('view');
+  el.innerHTML = view === 'today' ? todayView() : view === 'exercises' ? exercisesView() : historyView();
+  if (view === 'exercises') syncMachineToggle();
+}
+
+function emptyState(title, body, cta, action) {
+  return `<div class="card py-10 text-center">
+    <p class="text-lg font-semibold">${title}</p>
+    <p class="mt-1 text-sm muted">${body}</p>
+    ${cta ? `<button class="btn-primary mt-5" data-action="${action}">${cta}</button>` : ''}
+  </div>`;
+}
+
+function todayView() {
+  if (!state.exercises.length) {
+    return emptyState('No exercises yet', 'Add exercises to your database to get automatic targets.', 'Add an exercise', 'goto-exercises');
+  }
+  const d = ensureDraft();
+  const inDraft = new Set(d.entries.map((e) => e.exerciseId));
+  const remaining = state.exercises.filter((e) => !inDraft.has(e.id));
+
+  let html = `<section class="mb-4 flex items-end justify-between gap-3">
+    <div>
+      <h2 class="text-2xl font-bold">Today’s workout</h2>
+      <p class="text-sm muted">Targets are calculated from your last session.</p>
+    </div>
+    <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
+  </section>`;
+
+  html += d.entries.map((entry, i) => entryCard(entry, i)).join('');
+
+  if (remaining.length) {
+    html += `<section class="card mb-4">
+      <div class="mb-3 flex items-center justify-between">
+        <h3 class="font-semibold">${d.entries.length ? 'Add another exercise' : 'Pick today’s exercises'}</h3>
+        ${remaining.length > 1 ? `<button class="text-sm font-semibold text-indigo-600 dark:text-indigo-400" data-action="add-all">Add all</button>` : ''}
+      </div>
+      <div class="space-y-2">
+        ${remaining.map((ex) => {
+          const p = predict(ex);
+          return `<button class="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left transition hover:border-indigo-400 active:scale-[0.99] dark:border-slate-800" data-action="add-entry" data-id="${ex.id}">
+            <span class="min-w-0">
+              <span class="block truncate font-medium">${esc(ex.name)}</span>
+              <span class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps</span>
+            </span>
+            <span class="shrink-0 text-right">
+              <span class="block font-bold tabular-nums">${fmt(p.weight)} kg</span>
+              <span class="text-xs tabular-nums muted">${p.reps.join(' / ')}</span>
+            </span>
+          </button>`;
+        }).join('')}
+      </div>
+    </section>`;
+  }
+
+  if (d.entries.length) {
+    html += `<div class="grid grid-cols-[1fr_2fr] gap-3">
+      <button class="btn-ghost" data-action="discard">Discard</button>
+      <button class="btn-success" data-action="finish">Finish &amp; save workout</button>
+    </div>`;
+  }
+  return html;
+}
+
+function entryCard(entry, i) {
+  const ex = exById(entry.exerciseId);
+  if (!ex) return '';
+  const p = predict(ex);
+  return `<article class="card mb-4" data-entry="${i}">
+    <div class="flex items-start justify-between gap-2">
+      <div class="min-w-0">
+        <h3 class="truncate text-lg font-bold">${esc(ex.name)}</h3>
+        <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets</p>
+      </div>
+      <button class="icon-btn -mr-2 -mt-1" data-action="remove-entry" data-e="${i}" aria-label="Remove exercise">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="mt-3 rounded-xl bg-indigo-500/10 p-3">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Target today</span>
+        ${badge(p.rule)}
+      </div>
+      <p class="mt-1 text-3xl font-extrabold tabular-nums">${fmt(p.weight)} kg <span class="text-xl font-bold text-slate-500 dark:text-slate-400">× ${p.reps.join(' / ')}</span></p>
+      <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">${p.reason}</p>
+      ${p.belowRange ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">All sets were below ${ex.repMin} reps — consider dropping ${fmt(stepFor(ex))} kg if this repeats.</p>` : ''}
+      ${lastLine(p)}
+    </div>
+
+    <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
+      <span class="text-center">Set</span><span class="text-center">kg</span><span class="text-center">Reps</span><span></span><span></span>
+    </div>
+    <div class="mt-1 space-y-1">
+      ${entry.sets.map((s, j) => setRow(i, j, s, p, ex)).join('')}
+    </div>
+
+    <div class="mt-3 flex items-center justify-between gap-3">
+      <button class="text-sm font-semibold text-indigo-600 dark:text-indigo-400" data-action="add-set" data-e="${i}">+ Add set</button>
+      <p class="text-right text-sm" id="progress-${i}">${progressHtml(entry, ex, p)}</p>
+    </div>
+  </article>`;
+}
+
+function targetReps(p, ex, j) {
+  return p.reps[j] ?? p.reps[p.reps.length - 1] ?? ex.repMin;
+}
+
+function setRow(i, j, s, p, ex) {
+  const done = parseInt(s.reps, 10) > 0;
+  return `<div class="set-row ${done ? 'done' : ''}" id="row-${i}-${j}">
+    <span class="text-center font-bold muted">${j + 1}</span>
+    <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="decimal" step="any" min="0"
+      data-field="weight" data-e="${i}" data-s="${j}" value="${esc(s.weight)}" placeholder="${fmt(p.weight)}" aria-label="Set ${j + 1} weight">
+    <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="numeric" step="1" min="0"
+      data-field="reps" data-e="${i}" data-s="${j}" value="${esc(s.reps)}" placeholder="${targetReps(p, ex, j)}" aria-label="Set ${j + 1} reps">
+    <button class="check" data-action="fill-set" data-e="${i}" data-s="${j}" aria-label="Mark set ${j + 1} done at target">✓</button>
+    <button class="icon-btn h-9 w-9" data-action="remove-set" data-e="${i}" data-s="${j}" aria-label="Remove set ${j + 1}">
+      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+  </div>`;
+}
+
+function progressHtml(entry, ex, p) {
+  const sets = cleanSets(entry.sets, p.weight);
+  if (!sets.length) return `<span class="muted">Goal: <b class="text-slate-900 dark:text-slate-100">${p.total}</b> reps @ ${fmt(p.weight)} kg</span>`;
+  const ev = evaluate(ex, sets);
+  if (ev.hitCeiling) {
+    return `<span class="font-semibold text-emerald-600 dark:text-emerald-400">Ceiling hit — next time +${fmt(stepFor(ex))} kg</span>`;
+  }
+  const sameWeight = ev.top === p.weight;
+  const beat = sameWeight && ev.total >= p.total;
+  const colour = beat ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100';
+  return `<span class="muted">Reps @ ${fmt(ev.top)} kg: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total}</span>` : ''}`;
+}
+
+function exercisesView() {
+  const editing = editingId ? exById(editingId) : null;
+  const f = editing || { name: '', type: 'dumbbell', machineStep: 4, repMin: 8, repMax: 12, sets: 3, startWeight: '' };
+  const radio = (name, value, label, checked) => `<label class="block">
+      <input type="radio" name="${name}" value="${value}" class="seg-input sr-only" ${checked ? 'checked' : ''}>
+      <span class="seg">${label}</span>
+    </label>`;
+
+  let html = `<h2 class="mb-4 text-2xl font-bold">Exercise database</h2>
+  <form id="ex-form" class="card mb-6 space-y-4" autocomplete="off">
+    <h3 class="font-semibold">${editing ? 'Edit exercise' : 'Add exercise'}</h3>
+    <div>
+      <label class="label" for="f-name">Name</label>
+      <input id="f-name" name="name" class="input" required maxlength="60" placeholder="e.g. Incline Dumbbell Press" value="${esc(f.name)}">
+    </div>
+    <div>
+      <span class="label">Equipment</span>
+      <div class="grid grid-cols-3 gap-2">
+        ${radio('type', 'dumbbell', 'Dumbbell', f.type === 'dumbbell')}
+        ${radio('type', 'machine', 'Machine', f.type === 'machine')}
+        ${radio('type', 'barbell', 'Barbell', f.type === 'barbell')}
+      </div>
+      <p class="mt-1 text-xs muted" id="step-hint"></p>
+    </div>
+    <div id="machine-step-wrap">
+      <span class="label">Machine step size</span>
+      <div class="grid grid-cols-2 gap-2">
+        ${radio('machineStep', '3', '3 kg', f.machineStep === 3)}
+        ${radio('machineStep', '4', '4 kg', f.machineStep !== 3)}
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="label" for="f-min">Rep range min</label>
+        <input id="f-min" name="repMin" type="number" inputmode="numeric" min="1" max="50" required class="input" value="${f.repMin}">
+      </div>
+      <div>
+        <label class="label" for="f-max">Rep range max</label>
+        <input id="f-max" name="repMax" type="number" inputmode="numeric" min="2" max="100" required class="input" value="${f.repMax}">
+      </div>
+      <div>
+        <label class="label" for="f-sets">Working sets</label>
+        <input id="f-sets" name="sets" type="number" inputmode="numeric" min="1" max="10" required class="input" value="${f.sets}">
+      </div>
+      <div>
+        <label class="label" for="f-start">Starting weight (kg)</label>
+        <input id="f-start" name="startWeight" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" value="${f.startWeight}">
+      </div>
+    </div>
+    <div class="flex gap-3">
+      ${editing ? `<button type="button" class="btn-ghost flex-1" data-action="cancel-edit">Cancel</button>` : ''}
+      <button type="submit" class="btn-primary flex-1">${editing ? 'Save changes' : 'Add exercise'}</button>
+    </div>
+  </form>`;
+
+  if (!state.exercises.length) return html + emptyState('Your database is empty', 'Add an exercise above to get started.');
+
+  html += `<div class="space-y-3">${state.exercises.map((ex) => {
+    const p = predict(ex);
+    const count = sessionsFor(ex.id).length;
+    return `<article class="card">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <h3 class="truncate font-bold">${esc(ex.name)}</h3>
+          <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets · ${count} session${count === 1 ? '' : 's'}</p>
+        </div>
+        <div class="-mr-2 -mt-1 flex">
+          <button class="icon-btn" data-action="edit-ex" data-id="${ex.id}" aria-label="Edit ${esc(ex.name)}">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </button>
+          <button class="icon-btn" data-action="delete-ex" data-id="${ex.id}" aria-label="Delete ${esc(ex.name)}">
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="mt-3 flex items-center justify-between gap-2 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
+        <span class="text-xs font-semibold uppercase tracking-wide muted">Next session</span>
+        <span class="font-bold tabular-nums">${fmt(p.weight)} kg × ${p.reps.join(' / ')}</span>
+      </div>
+    </article>`;
+  }).join('')}</div>`;
+  return html;
+}
+
+function historyView() {
+  let html = `<div class="mb-4 flex items-center justify-between gap-2">
+    <h2 class="text-2xl font-bold">History</h2>
+    <div class="flex gap-2">
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Export</button>
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Import</button>
+    </div>
+  </div>`;
+
+  if (!state.history.length) {
+    return html + emptyState('No sessions logged yet', 'Finish a workout and it will appear here.', 'Start a workout', 'goto-today');
+  }
+
+  const byDate = {};
+  state.history.forEach((h) => (byDate[h.date] ||= []).push(h));
+  const dates = Object.keys(byDate).sort().reverse();
+
+  html += dates.map((date) => `<section class="mb-5">
+    <h3 class="mb-2 text-sm font-bold uppercase tracking-wide muted">${fmtDate(date)}</h3>
+    <div class="space-y-2">
+      ${byDate[date].sort((a, b) => a.ts - b.ts).map((h) => {
+        const ex = exById(h.exerciseId);
+        const ev = ex ? evaluate(ex, h.sets) : null;
+        return `<article class="card py-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="truncate font-semibold">${ex ? esc(ex.name) : '<span class="muted">Deleted exercise</span>'}</p>
+              <p class="mt-0.5 text-sm tabular-nums muted">${h.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(' · ')}</p>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              ${ev ? (ev.hitCeiling ? `<span class="badge bg-emerald-500/15 text-emerald-600 dark:text-emerald-300">Ceiling hit</span>` : `<span class="badge bg-slate-500/10 text-slate-600 dark:text-slate-300">${ev.total} reps</span>`) : ''}
+              <button class="icon-btn h-9 w-9" data-action="delete-session" data-id="${h.id}" aria-label="Delete session">
+                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          </div>
+        </article>`;
+      }).join('')}
+    </div>
+  </section>`).join('');
+
+  html += `<button class="btn-danger mt-4 w-full" data-action="reset">Erase all data</button>`;
+  return html;
+}
+
+function syncMachineToggle() {
+  const form = document.getElementById('ex-form');
+  if (!form) return;
+  const type = form.querySelector('input[name=type]:checked')?.value;
+  form.querySelector('#machine-step-wrap').classList.toggle('hidden', type !== 'machine');
+  const hints = {
+    dumbbell: 'Weights move in strict 2 kg jumps (10, 12, 14…).',
+    machine: 'Weights move in your machine’s pin step (3 kg or 4 kg).',
+    barbell: 'Weights round to the nearest 2.5 kg plate increment.',
+  };
+  form.querySelector('#step-hint').textContent = hints[type] || '';
+}
+
+// ---------- Actions --------------------------------------------------------
+function finishWorkout() {
+  const d = state.draft;
+  const ts = Date.now();
+  let saved = 0, ups = 0;
+  d.entries.forEach((entry, k) => {
+    const ex = exById(entry.exerciseId);
+    if (!ex) return;
+    const sets = cleanSets(entry.sets, predict(ex).weight);
+    if (!sets.length) return;
+    state.history.push({ id: uid(), exerciseId: ex.id, date: d.date || todayISO(), ts: ts + k, sets });
+    saved++;
+    if (evaluate(ex, sets).hitCeiling) ups++;
+  });
+  if (!saved) return toast('Log at least one set with reps first');
+  state.draft = null;
+  saveState();
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  toast(`Saved ${saved} exercise${saved === 1 ? '' : 's'}${ups ? ` · ${ups} weight increase${ups === 1 ? '' : 's'} next time` : ''}`);
+}
+
+function exportData() {
+  const blob = new Blob([JSON.stringify({ exercises: state.exercises, history: state.history }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `overload-tracker-${todayISO()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+document.getElementById('import-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.exercises) || !Array.isArray(data.history)) throw new Error('bad file');
+    if (!confirm('Replace all current exercises and history with this backup?')) return;
+    state = { exercises: data.exercises, history: data.history, draft: null };
+    saveState();
+    render();
+    toast('Backup imported');
+  } catch (err) {
+    toast('That file is not a valid Overload Tracker backup');
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn || btn.tagName === 'INPUT') return;
+  const { action, id } = btn.dataset;
+  const ei = Number(btn.dataset.e), si = Number(btn.dataset.s);
+  const entry = state.draft?.entries[ei];
+
+  switch (action) {
+    case 'nav': view = btn.dataset.view; editingId = null; render(); window.scrollTo(0, 0); return;
+    case 'goto-exercises': view = 'exercises'; render(); return;
+    case 'goto-today': view = 'today'; render(); return;
+    case 'toggle-theme': {
+      const dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('pot.theme', dark ? 'dark' : 'light'); } catch (err) {}
+      return;
+    }
+    case 'add-entry': addEntry(id); break;
+    case 'add-all': state.exercises.filter((x) => !state.draft.entries.some((en) => en.exerciseId === x.id)).forEach((x) => addEntry(x.id)); break;
+    case 'remove-entry':
+      if (entry.sets.some((s) => s.reps !== '') && !confirm('Remove this exercise and its logged sets?')) return;
+      state.draft.entries.splice(ei, 1); break;
+    case 'add-set': {
+      const lastSet = entry.sets[entry.sets.length - 1];
+      entry.sets.push({ weight: lastSet ? lastSet.weight : String(predict(exById(entry.exerciseId)).weight), reps: '' });
+      break;
+    }
+    case 'remove-set': entry.sets.splice(si, 1); break;
+    case 'fill-set': {
+      const ex = exById(entry.exerciseId), p = predict(ex), s = entry.sets[si];
+      if (parseInt(s.reps, 10) > 0) s.reps = '';             // tap again to un-mark
+      else {
+        if (s.weight === '') s.weight = String(p.weight);
+        s.reps = String(targetReps(p, ex, si));
+      }
+      break;
+    }
+    case 'finish': return finishWorkout();
+    case 'discard':
+      if (!confirm('Discard today’s logged sets?')) return;
+      state.draft = null; break;
+    case 'edit-ex': editingId = id; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return;
+    case 'cancel-edit': editingId = null; render(); return;
+    case 'delete-ex': {
+      const ex = exById(id);
+      if (!confirm(`Delete “${ex.name}” and all of its history?`)) return;
+      state.exercises = state.exercises.filter((x) => x.id !== id);
+      state.history = state.history.filter((h) => h.exerciseId !== id);
+      if (state.draft) state.draft.entries = state.draft.entries.filter((en) => en.exerciseId !== id);
+      if (editingId === id) editingId = null;
+      break;
+    }
+    case 'delete-session':
+      if (!confirm('Delete this logged session? Future targets will be recalculated.')) return;
+      state.history = state.history.filter((h) => h.id !== id); break;
+    case 'export': return exportData();
+    case 'import': document.getElementById('import-file').click(); return;
+    case 'reset':
+      if (!confirm('Erase ALL exercises and history from this browser? This cannot be undone.')) return;
+      state = { exercises: [], history: [], draft: null }; break;
+    default: return;
+  }
+  saveState();
+  render();
+});
+
+// Live set logging: update state without re-rendering (keeps keyboard focus).
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.dataset.field) {
+    const ei = Number(el.dataset.e), si = Number(el.dataset.s);
+    const entry = state.draft.entries[ei];
+    entry.sets[si][el.dataset.field] = el.value;
+    saveState();
+    const ex = exById(entry.exerciseId);
+    document.getElementById(`row-${ei}-${si}`).classList.toggle('done', parseInt(entry.sets[si].reps, 10) > 0);
+    document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, predict(ex));
+  }
+});
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.dataset.action === 'draft-date') {
+    ensureDraft().date = el.value || todayISO();
+    saveState();
+  } else if (el.name === 'type') {
+    syncMachineToggle();
+  }
+});
+
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'ex-form') return;
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const name = String(fd.get('name')).trim();
+  const repMin = parseInt(fd.get('repMin'), 10);
+  const repMax = parseInt(fd.get('repMax'), 10);
+  const sets = parseInt(fd.get('sets'), 10);
+  const startWeight = parseFloat(fd.get('startWeight')) || 0;
+  if (!name) return toast('Give the exercise a name');
+  if (!(repMin > 0 && repMax > repMin)) return toast('Rep range max must be higher than min');
+  if (!(sets >= 1 && sets <= 10)) return toast('Working sets must be between 1 and 10');
+
+  const data = { name, type: fd.get('type'), machineStep: Number(fd.get('machineStep')) === 3 ? 3 : 4, repMin, repMax, sets, startWeight };
+  if (editingId) {
+    Object.assign(exById(editingId), data);
+    toast('Exercise updated');
+    editingId = null;
+  } else {
+    state.exercises.push({ id: uid(), ...data });
+    toast(`Added ${name}`);
+  }
+  saveState();
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
