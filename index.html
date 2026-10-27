@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#020617">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Overload Tracker</title>
   <script>
     // Apply the saved theme before first paint (dark by default).
@@ -29,16 +30,21 @@
       .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-500; }
       .btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
       .btn-danger { @apply btn bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400; }
-      .icon-btn { @apply inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 active:scale-95 dark:text-slate-400 dark:hover:bg-slate-800; }
+      .icon-btn { @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 active:scale-95 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800; }
+      .link { @apply text-sm font-semibold text-indigo-600 dark:text-indigo-400; }
       .seg { @apply flex cursor-pointer items-center justify-center rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
       .seg-input:checked + .seg { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
+      .chip { @apply rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
+      .chip[data-level="1"] { @apply border-indigo-600 bg-indigo-600 text-white dark:text-white; }
+      .chip[data-level="0.5"] { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
       .set-row { @apply grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] items-center gap-2 rounded-xl px-1 py-1 transition; }
       .set-row.done { @apply bg-emerald-500/10; }
       .check { @apply inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-lg font-bold text-slate-400 transition active:scale-95 dark:border-slate-700 dark:text-slate-500; }
       .set-row.done .check { @apply border-emerald-500 bg-emerald-500 text-white; }
       .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
-      .nav-btn { @apply flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-semibold text-slate-500 transition dark:text-slate-400; }
+      .nav-btn { @apply flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold text-slate-500 transition dark:text-slate-400; }
       .nav-btn.active { @apply text-indigo-600 dark:text-indigo-400; }
+      .tile { @apply rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900; }
     }
     input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
@@ -62,12 +68,33 @@
     </div>
   </header>
 
-  <main id="view" class="mx-auto max-w-xl px-4 pb-32 pt-4"></main>
+  <main id="view" class="mx-auto max-w-xl px-4 pb-48 pt-4"></main>
 
   <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95" style="padding-bottom: env(safe-area-inset-bottom)">
+    <!-- Rest timer (shown while resting) -->
+    <div id="rest-timer" class="mx-auto hidden max-w-xl px-4 pt-3">
+      <div class="flex items-center gap-2 rounded-2xl bg-indigo-600 px-3 py-2 text-white">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="truncate text-xs font-semibold uppercase tracking-wide opacity-80" id="rest-label">Rest</span>
+            <span class="text-2xl font-extrabold tabular-nums" id="rest-time">0:00</span>
+          </div>
+          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-white/25"><div id="rest-bar" class="h-full rounded-full bg-white transition-[width] duration-200"></div></div>
+        </div>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="-15">−15</button>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="15">+15</button>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-skip">Skip</button>
+      </div>
+    </div>
     <div class="mx-auto flex max-w-xl">
       <button class="nav-btn" data-action="nav" data-view="today">
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Workout
+      </button>
+      <button class="nav-btn" data-action="nav" data-view="plan">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Plan
+      </button>
+      <button class="nav-btn" data-action="nav" data-view="stats">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>Stats
       </button>
       <button class="nav-btn" data-action="nav" data-view="exercises">
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Exercises
@@ -78,7 +105,11 @@
     </div>
   </nav>
 
-  <div id="toast" class="pointer-events-none fixed inset-x-0 bottom-24 z-30 flex justify-center px-4 opacity-0 transition-opacity duration-300">
+  <div id="modal" class="fixed inset-0 z-40 hidden items-end justify-center bg-black/50 sm:items-center sm:p-4">
+    <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
+  </div>
+
+  <div id="toast" class="pointer-events-none fixed inset-x-0 top-16 z-50 flex justify-center px-4 opacity-0 transition-opacity duration-300">
     <div id="toast-msg" class="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"></div>
   </div>
 
@@ -90,16 +121,42 @@
    ========================================================================= */
 
 const STORE_KEY = 'pot.v1';
+const MAX_ROUTINES = 5;
+const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Core'];
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+const SET_TARGET = [10, 20]; // weekly hard sets per muscle
 
-// ---------- Equipment & rounding ----------------------------------------
-const EQUIPMENT = {
-  dumbbell: { label: 'Dumbbell', short: 'DB' },
-  machine:  { label: 'Machine',  short: 'MC' },
-  barbell:  { label: 'Barbell',  short: 'BB' },
-};
-
+// ---------- Small helpers -------------------------------------------------
 const round2 = (x) => Math.round(x * 100) / 100;
 const sum = (arr) => arr.reduce((a, b) => a + b, 0);
+const fmt = (w) => String(round2(w));
+const fmtKg = (n) => Math.round(n).toLocaleString();
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+// Dates are local ISO strings (YYYY-MM-DD); weeks start on Monday.
+const toISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const todayISO = () => toISO(new Date());
+const parseISO = (iso) => new Date(iso + 'T12:00:00');
+const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
+const dow = (iso) => (parseISO(iso).getDay() + 6) % 7;
+const weekStart = (iso) => addDays(iso, -dow(iso));
+const fmtDate = (iso) => parseISO(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const fmtShort = (iso) => parseISO(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const fmtDay = (iso) => parseISO(iso).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(Math.max(0, s % 60)).padStart(2, '0')}`;
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.style.opacity = '0'), 2600);
+}
+
+// ---------- Equipment & rounding ----------------------------------------
 
 /** Smallest realistic load jump for this exercise's equipment. */
 function stepFor(ex) {
@@ -118,6 +175,12 @@ function eqLabel(ex) {
   if (ex.type === 'machine') return `Machine · ${stepFor(ex)}kg steps`;
   if (ex.type === 'dumbbell') return 'Dumbbell · 2kg steps';
   return 'Barbell · 2.5kg steps';
+}
+
+function muscleLabel(ex) {
+  const entries = Object.entries(ex.muscles || {});
+  if (!entries.length) return '';
+  return entries.sort((a, b) => b[1] - a[1]).map(([m, f]) => (f < 1 ? `${m} (½)` : m)).join(' · ');
 }
 
 // ---------- Progressive overload engine ----------------------------------
@@ -146,6 +209,7 @@ function evaluate(ex, sets) {
   return { top, working, reps, total, enoughSets, hitCeiling };
 }
 
+/** Sessions for an exercise, newest first. */
 function sessionsFor(exId) {
   return state.history
     .filter((h) => h.exerciseId === exId && h.sets.length)
@@ -199,35 +263,111 @@ function predict(ex) {
   return { rule: 'reps', weight: ev.top, reps, total, last, ev, reason, belowRange };
 }
 
-// ---------- State & persistence -----------------------------------------
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
-const todayISO = () => {
-  const d = new Date();
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-};
+/**
+ * Plateau: the last 3 sessions each failed to progress on the one before
+ * (no heavier weight, and no extra reps at the same weight). A logged deload
+ * resets the count.
+ */
+function plateau(ex) {
+  const ss = sessionsFor(ex.id);
+  if (ss.length < 4) return null;
+  for (let i = 0; i < 3; i++) {
+    if (ss[i].deload) return null;
+    const a = evaluate(ex, ss[i].sets), b = evaluate(ex, ss[i + 1].sets);
+    if (a.top > b.top || (a.top === b.top && a.total > b.total)) return null;
+  }
+  const at = evaluate(ex, ss[0].sets).top;
+  let weight = roundToStep(at * 0.9, ex);
+  if (weight >= at) weight = round2(Math.max(0, at - stepFor(ex)));
+  return { at, weight };
+}
 
+// ---------- Records ------------------------------------------------------
+
+/** Estimated one-rep max (Epley). */
+const e1rm = (s) => (s.reps === 1 ? s.weight : s.weight * (1 + s.reps / 30));
+const bestE1 = (sets) => Math.max(0, ...sets.map(e1rm));
+const topWeight = (sets) => Math.max(0, ...sets.map((s) => s.weight));
+const tonnage = (sets) => sum(sets.map((s) => s.weight * s.reps));
+
+/** Which records a logged session set, compared with everything before it. */
+function prsFor(h) {
+  const earlier = state.history.filter((x) => x.exerciseId === h.exerciseId && x.id !== h.id &&
+    (x.date < h.date || (x.date === h.date && x.ts < h.ts)));
+  if (!earlier.length) return [];
+  const prevE1 = Math.max(...earlier.map((x) => bestE1(x.sets)));
+  const prevW = Math.max(...earlier.map((x) => topWeight(x.sets)));
+  const out = [];
+  if (topWeight(h.sets) > prevW) out.push(`Heaviest: ${fmt(topWeight(h.sets))} kg`);
+  if (bestE1(h.sets) > prevE1 + 0.01) out.push(`Est. 1RM: ${fmt(Math.round(bestE1(h.sets) * 10) / 10)} kg`);
+  return out;
+}
+
+// ---------- Warm-ups & plates ------------------------------------------
+
+/** Plates to load on EACH side of the bar for a total barbell weight. */
+function platesFor(total) {
+  const bar = state.settings.barWeight;
+  let side = round2((total - bar) / 2);
+  if (side < 0) return { text: `Lighter than the ${fmt(bar)} kg bar`, ok: false };
+  if (side === 0) return { text: 'Empty bar', ok: true };
+  const used = [];
+  for (const p of PLATES) {
+    while (side >= p - 0.001) { used.push(p); side = round2(side - p); }
+  }
+  return { text: used.map(fmt).join(' + ') + (side > 0.01 ? ` (+${fmt(side)} kg not loadable)` : ''), ok: side <= 0.01 };
+}
+
+/** Ramp-up sets before the working weight. */
+function warmupsFor(ex, work) {
+  const out = [];
+  if (!(work > 0)) return out;
+  const bar = state.settings.barWeight;
+  if (ex.type === 'barbell' && work > bar) out.push({ weight: bar, reps: 10 });
+  for (const [pct, reps] of [[0.5, 8], [0.7, 5], [0.85, 3]]) {
+    const w = roundToStep(work * pct, ex);
+    const prev = out[out.length - 1];
+    if (w > 0 && w < work && (!prev || w > prev.weight) && !(ex.type === 'barbell' && w <= bar)) out.push({ weight: w, reps });
+  }
+  return out;
+}
+
+// ---------- State & persistence -----------------------------------------
 function seedState() {
-  const ex = (name, type, repMin, repMax, sets, startWeight, machineStep = 4) =>
-    ({ id: uid(), name, type, machineStep, repMin, repMax, sets, startWeight });
+  const ex = (name, type, repMin, repMax, sets, startWeight, muscles, rest, machineStep = 4) =>
+    ({ id: uid(), name, type, machineStep, repMin, repMax, sets, startWeight, muscles, rest });
+  const exercises = [
+    ex('Barbell Back Squat', 'barbell', 5, 8, 3, 60, { Quads: 1, Glutes: 1, Hamstrings: 0.5 }, 150),
+    ex('Dumbbell Bench Press', 'dumbbell', 8, 12, 3, 20, { Chest: 1, Triceps: 0.5, Shoulders: 0.5 }, 120),
+    ex('Lat Pulldown', 'machine', 8, 12, 3, 45, { Back: 1, Biceps: 0.5 }, 90, 3),
+    ex('Leg Press', 'machine', 10, 15, 3, 100, { Quads: 1, Glutes: 0.5 }, 120, 4),
+  ];
   return {
-    exercises: [
-      ex('Barbell Back Squat', 'barbell', 5, 8, 3, 60),
-      ex('Dumbbell Bench Press', 'dumbbell', 8, 12, 3, 20),
-      ex('Lat Pulldown', 'machine', 8, 12, 3, 45, 3),
-      ex('Leg Press', 'machine', 10, 15, 3, 100, 4),
-    ],
+    exercises,
     history: [],
+    routines: [{ id: uid(), name: 'Full Body', exerciseIds: exercises.map((e) => e.id) }],
+    schedule: { weekly: {}, overrides: {} },
+    settings: { barWeight: 20 },
     draft: null,
+  };
+}
+
+/** Accepts saved data from any version of the app and fills in new fields. */
+function migrate(d) {
+  return {
+    exercises: (d.exercises || []).map((e) => ({ muscles: {}, rest: 90, machineStep: 4, ...e })),
+    history: d.history || [],
+    routines: d.routines || [],
+    schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
+    settings: { barWeight: 20, ...(d.settings || {}) },
+    draft: d.draft ? { routineId: null, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
   };
 }
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw);
-      return { exercises: d.exercises || [], history: d.history || [], draft: d.draft || null };
-    }
+    if (raw) return migrate(JSON.parse(raw));
   } catch (e) { /* fall through to seed */ }
   return seedState();
 }
@@ -239,12 +379,44 @@ function saveState() {
 
 let state = loadState();
 let view = 'today';
-let editingId = null;
+let editingId = null;      // exercise being edited
+let routineEdit = null;    // { id, name, exerciseIds } while editing a routine
+let modal = null;          // { type: 'day' | 'summary', ... }
+let planWeek = weekStart(todayISO());
+let statsWeek = weekStart(todayISO());
+let statsExId = null;
 
 const exById = (id) => state.exercises.find((e) => e.id === id);
+const routineById = (id) => state.routines.find((r) => r.id === id);
 
+// ---------- Schedule -----------------------------------------------------
+
+/** The routine planned for a date: a one-off override wins over the weekly plan. */
+function plannedRoutine(date) {
+  const o = state.schedule.overrides[date];
+  const id = o !== undefined ? (o === 'rest' ? null : o) : state.schedule.weekly[dow(date)];
+  return id ? routineById(id) || null : null;
+}
+
+/** Set a one-off plan for a date; drops the override when it matches the weekly plan. */
+function setDayPlan(date, routineId) {
+  const weekly = routineById(state.schedule.weekly[dow(date)])?.id || null;
+  if ((routineId || null) === weekly) delete state.schedule.overrides[date];
+  else state.schedule.overrides[date] = routineId || 'rest';
+}
+
+function dayStatus(date) {
+  const done = state.history.some((h) => h.date === date);
+  const r = plannedRoutine(date);
+  if (done) return 'done';
+  if (r && date < todayISO()) return 'missed';
+  if (r) return 'planned';
+  return 'rest';
+}
+
+// ---------- Draft workout ------------------------------------------------
 function ensureDraft() {
-  if (!state.draft) state.draft = { date: todayISO(), entries: [] };
+  if (!state.draft) state.draft = { date: todayISO(), routineId: null, entries: [] };
   return state.draft;
 }
 
@@ -255,26 +427,70 @@ function addEntry(exId) {
   ensureDraft().entries.push({
     exerciseId: exId,
     sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })),
+    note: '', rpe: '', deload: false, showWarmup: false,
   });
 }
 
-// ---------- Helpers ------------------------------------------------------
-const fmt = (w) => String(round2(w));
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtDate = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-
-let toastTimer;
-function toast(msg) {
-  const el = document.getElementById('toast');
-  document.getElementById('toast-msg').textContent = msg;
-  el.style.opacity = '1';
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.style.opacity = '0'), 2600);
+function startRoutine(id, date = todayISO()) {
+  const r = routineById(id);
+  if (!r) return;
+  state.draft = { date, routineId: id, entries: [] };
+  r.exerciseIds.forEach(addEntry);
+  view = 'today';
 }
 
+// ---------- Rest timer ---------------------------------------------------
+let rest = null; // { end, total, label, alerted }
+let audioCtx = null;
+
+function startRest(seconds, label) {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume?.();
+  } catch (e) { /* audio is optional */ }
+  rest = { end: Date.now() + seconds * 1000, total: seconds, label, alerted: false };
+  tickRest();
+}
+
+function beep() {
+  if (!audioCtx) return;
+  try {
+    const t0 = audioCtx.currentTime;
+    [0, 0.25, 0.5].forEach((t) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, t0 + t);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + t + 0.18);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0 + t);
+      o.stop(t0 + t + 0.2);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function tickRest() {
+  const box = document.getElementById('rest-timer');
+  if (!rest) { box.classList.add('hidden'); return; }
+  const left = Math.max(0, Math.ceil((rest.end - Date.now()) / 1000));
+  box.classList.remove('hidden');
+  document.getElementById('rest-label').textContent = left ? `Rest · ${rest.label}` : 'Rest over — next set!';
+  document.getElementById('rest-time').textContent = fmtSecs(left);
+  document.getElementById('rest-bar').style.width = `${Math.min(100, (left / rest.total) * 100)}%`;
+  if (!left && !rest.alerted) {
+    rest.alerted = true;
+    navigator.vibrate?.([250, 120, 250, 120, 250]);
+    beep();
+    const done = rest;
+    setTimeout(() => { if (rest === done) { rest = null; tickRest(); } }, 6000);
+  }
+}
+setInterval(tickRest, 250);
+
+// ---------- Rendering ----------------------------------------------------
 const RULE_BADGE = {
-  start: ['First session', 'bg-sky-500/15 text-sky-600 dark:text-sky-300'],
-  up:    ['Weight up',     'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'],
+  start: ['First session', 'bg-sky-500/15 text-sky-700 dark:text-sky-300'],
+  up:    ['Weight up',     'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'],
   reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
 };
 
@@ -283,18 +499,17 @@ function badge(rule) {
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
-function lastLine(p) {
-  if (!p.last) return '';
-  const sets = p.last.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(', ');
-  return `<p class="mt-2 text-xs muted">Last (${fmtDate(p.last.date)}): ${sets}</p>`;
-}
+const ICON_X = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const ICON_EDIT = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
-// ---------- Views ----------------------------------------------------------
 function render() {
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const el = document.getElementById('view');
-  el.innerHTML = view === 'today' ? todayView() : view === 'exercises' ? exercisesView() : historyView();
+  const views = { today: todayView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
+  document.getElementById('view').innerHTML = views[view]();
   if (view === 'exercises') syncMachineToggle();
+  if (view === 'stats') attachCharts();
+  renderModal();
 }
 
 function emptyState(title, body, cta, action) {
@@ -305,31 +520,97 @@ function emptyState(title, body, cta, action) {
   </div>`;
 }
 
+// ----- Week calendar strip -----
+function weekStrip(start) {
+  const today = todayISO();
+  return `<div class="grid grid-cols-7 gap-1.5">${DAYS.map((name, i) => {
+    const d = addDays(start, i);
+    const r = plannedRoutine(d);
+    const st = dayStatus(d);
+    const label = { done: '✓ Done', missed: 'Missed', planned: r ? r.name : '', rest: 'Rest' }[st];
+    const tone = {
+      done: 'text-emerald-700 dark:text-emerald-400',
+      missed: 'text-rose-600 dark:text-rose-400',
+      planned: 'text-indigo-700 dark:text-indigo-300',
+      rest: 'text-slate-400 dark:text-slate-500',
+    }[st];
+    const moved = state.schedule.overrides[d] !== undefined;
+    return `<button class="flex min-w-0 flex-col items-center rounded-xl border px-0.5 py-2 transition active:scale-95 ${d === today ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}"
+        data-action="open-day" data-date="${d}" aria-label="${fmtDay(d)}: ${esc(label)}">
+      <span class="text-[10px] font-semibold uppercase muted">${name}</span>
+      <span class="text-base font-bold tabular-nums">${parseISO(d).getDate()}</span>
+      <span class="mt-0.5 w-full truncate px-0.5 text-center text-[10px] font-semibold leading-4 ${tone}">${esc(label)}${moved ? '*' : ''}</span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
+// ----- Workout tab -----
 function todayView() {
   if (!state.exercises.length) {
     return emptyState('No exercises yet', 'Add exercises to your database to get automatic targets.', 'Add an exercise', 'goto-exercises');
   }
-  const d = ensureDraft();
-  const inDraft = new Set(d.entries.map((e) => e.exerciseId));
-  const remaining = state.exercises.filter((e) => !inDraft.has(e.id));
+  const today = todayISO();
+  const d = state.draft;
+  const active = d && d.entries.length;
 
-  let html = `<section class="mb-4 flex items-end justify-between gap-3">
-    <div>
-      <h2 class="text-2xl font-bold">Today’s workout</h2>
-      <p class="text-sm muted">Targets are calculated from your last session.</p>
-    </div>
-    <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
-  </section>`;
+  let html = `<section class="mb-4">${weekStrip(weekStart(today))}</section>`;
 
-  html += d.entries.map((entry, i) => entryCard(entry, i)).join('');
-
-  if (remaining.length) {
+  if (!active) {
+    const r = plannedRoutine(today);
+    const doneToday = state.history.some((h) => h.date === today);
     html += `<section class="card mb-4">
-      <div class="mb-3 flex items-center justify-between">
-        <h3 class="font-semibold">${d.entries.length ? 'Add another exercise' : 'Pick today’s exercises'}</h3>
-        ${remaining.length > 1 ? `<button class="text-sm font-semibold text-indigo-600 dark:text-indigo-400" data-action="add-all">Add all</button>` : ''}
+      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Today · ${fmtDay(today)}</p>`;
+    if (doneToday) {
+      html += `<h2 class="mt-1 text-2xl font-bold">Workout logged ✓</h2>
+        <p class="mt-1 text-sm muted">Nice work. Check your progress in Stats, or log more below.</p>`;
+    }
+    if (r && !doneToday) {
+      html += `<h2 class="mt-1 text-2xl font-bold">${esc(r.name)}</h2>
+        <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
+          ${r.exerciseIds.map(exById).filter(Boolean).map((ex) => {
+            const p = predict(ex);
+            return `<li class="flex items-center justify-between gap-3 py-2">
+              <span class="min-w-0 truncate font-medium">${esc(ex.name)}</span>
+              <span class="shrink-0 text-right font-bold tabular-nums">${fmt(p.weight)} kg <span class="font-medium muted">× ${p.reps.join('/')}</span></span>
+            </li>`;
+          }).join('')}
+        </ul>
+        <button class="btn-primary mt-3 w-full" data-action="start-routine" data-id="${r.id}">Start ${esc(r.name)}</button>`;
+    } else if (!doneToday) {
+      html += `<h2 class="mt-1 text-2xl font-bold">Rest day</h2>
+        <p class="mt-1 text-sm muted">${state.routines.length ? 'Nothing scheduled. Recover, or start a workout below.' : 'Create routines and a weekly schedule in the Plan tab.'}</p>`;
+    }
+    html += `</section>`;
+
+    const others = state.routines.filter((x) => doneToday || x.id !== r?.id);
+    if (others.length) {
+      html += `<section class="mb-4">
+        <h3 class="mb-2 text-sm font-bold uppercase tracking-wide muted">${r && !doneToday ? 'Or start another routine' : 'Start a routine'}</h3>
+        <div class="grid grid-cols-2 gap-2">${others.map((x) => `<button class="btn-ghost justify-start truncate text-left" data-action="start-routine" data-id="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+      </section>`;
+    }
+  } else {
+    const r = routineById(d.routineId);
+    html += `<section class="mb-4 flex items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="truncate text-2xl font-bold">${r ? esc(r.name) : 'Today’s workout'}</h2>
+        <p class="text-sm muted">Targets are calculated from your last session.</p>
       </div>
-      <div class="space-y-2">
+      <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
+    </section>`;
+    html += d.entries.map((entry, i) => entryCard(entry, i)).join('');
+  }
+
+  const inDraft = new Set((d?.entries || []).map((e) => e.exerciseId));
+  const remaining = state.exercises.filter((e) => !inDraft.has(e.id));
+  if (remaining.length) {
+    html += `<details class="card mb-4">
+      <summary class="flex cursor-pointer list-none items-center justify-between font-semibold">
+        <span>${active ? 'Add another exercise' : 'Build a one-off workout'}</span>
+        <span class="link">Show</span>
+      </summary>
+      <div class="mt-3 space-y-2">
+        ${remaining.length > 1 ? `<button class="link" data-action="add-all">Add all ${remaining.length}</button>` : ''}
         ${remaining.map((ex) => {
           const p = predict(ex);
           return `<button class="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left transition hover:border-indigo-400 active:scale-[0.99] dark:border-slate-800" data-action="add-entry" data-id="${ex.id}">
@@ -344,10 +625,10 @@ function todayView() {
           </button>`;
         }).join('')}
       </div>
-    </section>`;
+    </details>`;
   }
 
-  if (d.entries.length) {
+  if (active) {
     html += `<div class="grid grid-cols-[1fr_2fr] gap-3">
       <button class="btn-ghost" data-action="discard">Discard</button>
       <button class="btn-success" data-action="finish">Finish &amp; save workout</button>
@@ -356,19 +637,50 @@ function todayView() {
   return html;
 }
 
+function lastLine(p) {
+  if (!p.last) return '';
+  const sets = p.last.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(', ');
+  const extra = [p.last.rpe ? `RPE ${p.last.rpe}` : '', p.last.note ? `“${esc(p.last.note)}”` : ''].filter(Boolean).join(' · ');
+  return `<p class="mt-2 text-xs muted">Last (${fmtShort(p.last.date)}): ${sets}${extra ? `<br>${extra}` : ''}</p>`;
+}
+
 function entryCard(entry, i) {
   const ex = exById(entry.exerciseId);
   if (!ex) return '';
   const p = predict(ex);
+  const stall = plateau(ex);
+  const workWeight = entry.deload && stall ? stall.weight : p.weight;
+  const rpeOptions = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
+
+  let stallHtml = '';
+  if (stall && !entry.deload) {
+    stallHtml = `<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+      <p class="font-semibold text-amber-800 dark:text-amber-300">⚠ Plateau: no progress for 3 sessions at ${fmt(stall.at)} kg</p>
+      <p class="mt-0.5 text-slate-700 dark:text-slate-300">A ~10% deload to <b>${fmt(stall.weight)} kg</b> lets you build momentum and push past it.</p>
+      <button class="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white" data-action="apply-deload" data-e="${i}">Apply deload</button>
+    </div>`;
+  } else if (entry.deload && stall) {
+    stallHtml = `<div class="mt-3 flex items-center justify-between gap-2 rounded-xl bg-amber-500/10 p-3 text-sm">
+      <span class="text-amber-800 dark:text-amber-300">Deload applied: ${fmt(stall.weight)} kg. Build back up from here.</span>
+      <button class="link shrink-0" data-action="undo-deload" data-e="${i}">Undo</button>
+    </div>`;
+  }
+
+  const warm = warmupsFor(ex, workWeight);
+  const warmHtml = entry.showWarmup ? `<div class="mt-2 space-y-1 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
+      ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
+        : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
+      <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${fmt(workWeight)} kg</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
+      ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar.</p>` : ''}
+    </div>` : '';
+
   return `<article class="card mb-4" data-entry="${i}">
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0">
         <h3 class="truncate text-lg font-bold">${esc(ex.name)}</h3>
         <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets</p>
       </div>
-      <button class="icon-btn -mr-2 -mt-1" data-action="remove-entry" data-e="${i}" aria-label="Remove exercise">
-        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      <button class="icon-btn -mr-2 -mt-1" data-action="remove-entry" data-e="${i}" aria-label="Remove exercise">${ICON_X}</button>
     </div>
 
     <div class="mt-3 rounded-xl bg-indigo-500/10 p-3">
@@ -381,6 +693,10 @@ function entryCard(entry, i) {
       ${p.belowRange ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">All sets were below ${ex.repMin} reps — consider dropping ${fmt(stepFor(ex))} kg if this repeats.</p>` : ''}
       ${lastLine(p)}
     </div>
+    ${stallHtml}
+
+    <button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>
+    ${warmHtml}
 
     <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
       <span class="text-center">Set</span><span class="text-center">kg</span><span class="text-center">Reps</span><span></span><span></span>
@@ -390,8 +706,18 @@ function entryCard(entry, i) {
     </div>
 
     <div class="mt-3 flex items-center justify-between gap-3">
-      <button class="text-sm font-semibold text-indigo-600 dark:text-indigo-400" data-action="add-set" data-e="${i}">+ Add set</button>
+      <div class="flex shrink-0 gap-4">
+        <button class="link" data-action="add-set" data-e="${i}">+ Set</button>
+        <button class="link" data-action="rest-start" data-e="${i}">⏱ ${fmtSecs(ex.rest || 90)}</button>
+      </div>
       <p class="text-right text-sm" id="progress-${i}">${progressHtml(entry, ex, p)}</p>
+    </div>
+
+    <div class="mt-3 grid grid-cols-[6rem_1fr] gap-2">
+      <select class="input py-2 text-sm" data-entry-field="rpe" data-e="${i}" aria-label="RPE (effort 1–10)">
+        ${rpeOptions.map((v) => `<option value="${v}" ${String(entry.rpe) === v ? 'selected' : ''}>${v ? `RPE ${v}` : 'RPE'}</option>`).join('')}
+      </select>
+      <input class="input py-2 text-sm" data-entry-field="note" data-e="${i}" maxlength="140" placeholder="Note (seat height, grip, how it felt…)" value="${esc(entry.note)}">
     </div>
   </article>`;
 }
@@ -408,7 +734,7 @@ function setRow(i, j, s, p, ex) {
       data-field="weight" data-e="${i}" data-s="${j}" value="${esc(s.weight)}" placeholder="${fmt(p.weight)}" aria-label="Set ${j + 1} weight">
     <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="numeric" step="1" min="0"
       data-field="reps" data-e="${i}" data-s="${j}" value="${esc(s.reps)}" placeholder="${targetReps(p, ex, j)}" aria-label="Set ${j + 1} reps">
-    <button class="check" data-action="fill-set" data-e="${i}" data-s="${j}" aria-label="Mark set ${j + 1} done at target">✓</button>
+    <button class="check" data-action="fill-set" data-e="${i}" data-s="${j}" aria-label="Mark set ${j + 1} done">✓</button>
     <button class="icon-btn h-9 w-9" data-action="remove-set" data-e="${i}" data-s="${j}" aria-label="Remove set ${j + 1}">
       <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
     </button>
@@ -417,20 +743,306 @@ function setRow(i, j, s, p, ex) {
 
 function progressHtml(entry, ex, p) {
   const sets = cleanSets(entry.sets, p.weight);
-  if (!sets.length) return `<span class="muted">Goal: <b class="text-slate-900 dark:text-slate-100">${p.total}</b> reps @ ${fmt(p.weight)} kg</span>`;
+  if (!sets.length) return `<span class="muted">Goal: <b class="text-slate-900 dark:text-slate-100">${p.total}</b> reps</span>`;
   const ev = evaluate(ex, sets);
   if (ev.hitCeiling) {
-    return `<span class="font-semibold text-emerald-600 dark:text-emerald-400">Ceiling hit — next time +${fmt(stepFor(ex))} kg</span>`;
+    return `<span class="font-semibold text-emerald-700 dark:text-emerald-400">Ceiling hit → +${fmt(stepFor(ex))} kg next</span>`;
   }
   const sameWeight = ev.top === p.weight;
   const beat = sameWeight && ev.total >= p.total;
-  const colour = beat ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100';
-  return `<span class="muted">Reps @ ${fmt(ev.top)} kg: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total}</span>` : ''}`;
+  const colour = beat ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100';
+  return `<span class="muted">@ ${fmt(ev.top)} kg: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total} reps</span>` : '<span class="muted"> reps</span>'}`;
 }
 
+// ----- Plan tab -----
+function planView() {
+  const weekEnd = addDays(planWeek, 6);
+  const opts = (selected) => `<option value="">Rest</option>` +
+    state.routines.map((r) => `<option value="${r.id}" ${r.id === selected ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+
+  let html = `<h2 class="mb-4 text-2xl font-bold">Plan</h2>
+  <section class="card mb-4">
+    <div class="mb-3 flex items-center justify-between">
+      <button class="icon-btn text-2xl" data-action="plan-week" data-dir="-1" aria-label="Previous week">‹</button>
+      <div class="text-center">
+        <p class="font-semibold">${fmtShort(planWeek)} – ${fmtShort(weekEnd)}</p>
+        ${planWeek !== weekStart(todayISO()) ? `<button class="link text-xs" data-action="plan-week" data-dir="0">Back to this week</button>` : '<p class="text-xs muted">This week</p>'}
+      </div>
+      <button class="icon-btn text-2xl" data-action="plan-week" data-dir="1" aria-label="Next week">›</button>
+    </div>
+    ${weekStrip(planWeek)}
+    <p class="mt-3 text-xs muted">Tap a day to swap, skip or move its workout. * = changed from your weekly plan.</p>
+  </section>
+
+  <section class="card mb-6">
+    <h3 class="font-semibold">Weekly schedule</h3>
+    <p class="mb-3 text-sm muted">Repeats every week. One-off changes don’t affect it.</p>
+    ${state.routines.length ? '' : '<p class="mb-3 rounded-xl bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">Create a routine below first, then assign it to days.</p>'}
+    <div class="space-y-2">
+      ${DAYS.map((name, i) => `<label class="grid grid-cols-[4.5rem_1fr] items-center gap-3">
+        <span class="font-semibold">${name}</span>
+        <select class="input py-2" data-action="weekly-set" data-dow="${i}">${opts(state.schedule.weekly[i])}</select>
+      </label>`).join('')}
+    </div>
+  </section>
+
+  <div class="mb-3 flex items-center justify-between">
+    <h3 class="text-lg font-bold">Routines <span class="text-sm font-medium muted">${state.routines.length}/${MAX_ROUTINES}</span></h3>
+    ${!routineEdit && state.routines.length < MAX_ROUTINES ? `<button class="btn-primary px-3 py-2 text-sm" data-action="new-routine">+ New routine</button>` : ''}
+  </div>`;
+
+  if (routineEdit && !routineEdit.id) html += routineEditor();
+  if (!state.routines.length && !routineEdit) html += emptyState('No routines yet', 'Group your exercises into up to 5 routines, like Push, Pull and Legs.');
+
+  html += `<div class="space-y-3">${state.routines.map((r) => {
+    if (routineEdit?.id === r.id) return routineEditor();
+    const days = DAYS.filter((_, i) => state.schedule.weekly[i] === r.id);
+    const names = r.exerciseIds.map(exById).filter(Boolean);
+    return `<article class="card">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <h4 class="truncate font-bold">${esc(r.name)}</h4>
+          <p class="text-xs muted">${names.length} exercise${names.length === 1 ? '' : 's'}${days.length ? ` · ${days.join(', ')}` : ' · not scheduled'}</p>
+        </div>
+        <div class="-mr-2 -mt-1 flex">
+          <button class="icon-btn" data-action="edit-routine" data-id="${r.id}" aria-label="Edit ${esc(r.name)}">${ICON_EDIT}</button>
+          <button class="icon-btn" data-action="delete-routine" data-id="${r.id}" aria-label="Delete ${esc(r.name)}">${ICON_TRASH}</button>
+        </div>
+      </div>
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">${names.map((e) => esc(e.name)).join(' · ') || '<span class="muted">No exercises</span>'}</p>
+      <button class="btn-ghost mt-3 w-full py-2 text-sm" data-action="start-routine" data-id="${r.id}">Start now</button>
+    </article>`;
+  }).join('')}</div>`;
+  return html;
+}
+
+function routineEditor() {
+  const re = routineEdit;
+  const available = state.exercises.filter((e) => !re.exerciseIds.includes(e.id));
+  return `<article class="card mb-3 border-indigo-500 dark:border-indigo-500">
+    <h4 class="mb-3 font-semibold">${re.id ? 'Edit routine' : 'New routine'}</h4>
+    <label class="label" for="r-name">Name</label>
+    <input id="r-name" class="input" maxlength="30" placeholder="e.g. Push Day" data-routine-field="name" value="${esc(re.name)}">
+    <p class="label mt-4">Exercises (in order)</p>
+    <ol class="space-y-1.5">
+      ${re.exerciseIds.map(exById).filter(Boolean).map((ex, k, arr) => `<li class="flex items-center gap-1 rounded-xl bg-slate-100 py-1 pl-3 pr-1 dark:bg-slate-800/60">
+        <span class="w-5 text-sm font-bold muted">${k + 1}</span>
+        <span class="min-w-0 flex-1 truncate font-medium">${esc(ex.name)}</span>
+        <button class="icon-btn h-9 w-9" data-action="routine-move" data-k="${k}" data-dir="-1" ${k === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
+        <button class="icon-btn h-9 w-9" data-action="routine-move" data-k="${k}" data-dir="1" ${k === arr.length - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>
+        <button class="icon-btn h-9 w-9" data-action="routine-remove" data-k="${k}" aria-label="Remove">${ICON_X}</button>
+      </li>`).join('') || '<li class="text-sm muted">No exercises yet. Add some below.</li>'}
+    </ol>
+    ${available.length ? `<select class="input mt-2" data-action="routine-add">
+      <option value="">+ Add exercise…</option>
+      ${available.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+    </select>` : ''}
+    <div class="mt-4 flex gap-3">
+      <button class="btn-ghost flex-1" data-action="cancel-routine">Cancel</button>
+      <button class="btn-primary flex-1" data-action="save-routine">Save routine</button>
+    </div>
+  </article>`;
+}
+
+// ----- Stats tab -----
+function weekVolume(start) {
+  const end = addDays(start, 6);
+  return sum(state.history.filter((h) => h.date >= start && h.date <= end).map((h) => tonnage(h.sets)));
+}
+
+function muscleVolume(start) {
+  const end = addDays(start, 6);
+  const out = Object.fromEntries(MUSCLES.map((m) => [m, { sets: 0, kg: 0 }]));
+  let untagged = 0;
+  state.history.filter((h) => h.date >= start && h.date <= end).forEach((h) => {
+    const ex = exById(h.exerciseId);
+    if (!ex) return;
+    const ev = evaluate(ex, h.sets);
+    const n = ev.working.length, kg = tonnage(ev.working);
+    const ms = Object.entries(ex.muscles || {});
+    if (!ms.length) { untagged += n; return; }
+    ms.forEach(([m, f]) => { if (out[m]) { out[m].sets += n * f; out[m].kg += kg * f; } });
+  });
+  return { out, untagged };
+}
+
+function weekStreak() {
+  const weeks = new Set(state.history.map((h) => weekStart(h.date)));
+  let w = weekStart(todayISO());
+  if (!weeks.has(w)) w = addDays(w, -7); // this week isn't over yet
+  let n = 0;
+  while (weeks.has(w)) { n++; w = addDays(w, -7); }
+  return n;
+}
+
+function statsView() {
+  if (!state.history.length) {
+    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` +
+      emptyState('No data yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
+  }
+  const thisWeek = weekStart(todayISO());
+  const weekDates = DAYS.map((_, i) => addDays(thisWeek, i));
+  const doneDays = weekDates.filter((d) => state.history.some((h) => h.date === d)).length;
+  const plannedDays = weekDates.filter((d) => plannedRoutine(d)).length;
+  const since = addDays(todayISO(), -30);
+  const prCount = state.history.filter((h) => h.date >= since && prsFor(h).length).length;
+
+  const tile = (label, value, sub) => `<div class="tile">
+    <p class="text-xs font-semibold uppercase tracking-wide muted">${label}</p>
+    <p class="mt-1 text-2xl font-extrabold tabular-nums">${value}</p>
+    <p class="text-xs muted">${sub}</p>
+  </div>`;
+
+  let html = `<h2 class="mb-4 text-2xl font-bold">Stats</h2>
+  <section class="mb-4 grid grid-cols-2 gap-3">
+    ${tile('This week', `${doneDays}${plannedDays ? `<span class="text-base font-bold muted"> / ${plannedDays}</span>` : ''}`, plannedDays ? 'workouts done / planned' : 'workout days')}
+    ${tile('Streak', weekStreak(), 'weeks in a row')}
+    ${tile('Volume', fmtKg(weekVolume(thisWeek)), 'kg lifted this week')}
+    ${tile('Records', prCount, 'PR sessions, last 30 days')}
+  </section>`;
+
+  // Weekly sets per muscle
+  const { out, untagged } = muscleVolume(statsWeek);
+  const maxSets = Math.max(25, ...Object.values(out).map((v) => v.sets));
+  const pct = (v) => `${(v / maxSets) * 100}%`;
+  html += `<section class="card mb-4">
+    <h3 class="font-semibold">Weekly sets per muscle</h3>
+    <p class="text-xs muted">Working sets · secondary muscles count ½ · shaded band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets, a common growth target</p>
+    <div class="my-3 flex items-center justify-between">
+      <button class="icon-btn text-2xl" data-action="stats-week" data-dir="-1" aria-label="Previous week">‹</button>
+      <span class="text-sm font-semibold">${statsWeek === thisWeek ? 'This week' : `${fmtShort(statsWeek)} – ${fmtShort(addDays(statsWeek, 6))}`}</span>
+      <button class="icon-btn text-2xl" data-action="stats-week" data-dir="1" ${statsWeek >= thisWeek ? 'disabled' : ''} aria-label="Next week">›</button>
+    </div>
+    <div class="space-y-2.5">
+      ${MUSCLES.map((m) => {
+        const v = out[m];
+        const status = v.sets === 0 ? '—' : v.sets < SET_TARGET[0] ? 'Low' : v.sets <= SET_TARGET[1] ? 'On target' : 'High';
+        return `<div class="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-2" title="${m}: ${fmt(v.sets)} sets, ${fmtKg(v.kg)} kg">
+          <span class="text-sm font-medium">${m}</span>
+          <div class="relative h-5">
+            <div class="absolute inset-y-0 rounded bg-slate-200/70 dark:bg-slate-800" style="left:${pct(SET_TARGET[0])};width:${pct(SET_TARGET[1] - SET_TARGET[0])}"></div>
+            <div class="absolute inset-y-1 left-0 rounded-r-[4px] bg-indigo-500" style="width:${v.sets ? pct(v.sets) : '0'}"></div>
+          </div>
+          <span class="text-right text-xs leading-tight"><b class="tabular-nums">${fmt(v.sets)}</b> <span class="muted">sets</span><br><span class="muted">${status}</span></span>
+        </div>`;
+      }).join('')}
+    </div>
+    ${untagged ? `<p class="mt-3 text-xs muted">${fmt(untagged)} sets came from exercises with no muscles tagged. Tag them in Exercises.</p>` : ''}
+  </section>`;
+
+  // Weekly volume trend (8 weeks)
+  const weeks = Array.from({ length: 8 }, (_, k) => addDays(thisWeek, -7 * (7 - k)));
+  const vols = weeks.map(weekVolume);
+  const maxVol = Math.max(1, ...vols);
+  html += `<section class="card mb-4" data-chart="bars">
+    <h3 class="font-semibold">Total volume per week</h3>
+    <p class="text-sm muted" data-readout>Week of ${fmtShort(weeks[7])}: <b class="text-slate-900 dark:text-slate-100">${fmtKg(vols[7])} kg</b></p>
+    <div class="mt-3 flex h-36 items-end gap-2 border-b border-slate-200 dark:border-slate-800">
+      ${weeks.map((w, k) => `<button class="flex h-full flex-1 items-end justify-center" data-action="bar" data-readout="Week of ${fmtShort(w)}: <b class='text-slate-900 dark:text-slate-100'>${fmtKg(vols[k])} kg</b>" aria-label="Week of ${fmtShort(w)}: ${fmtKg(vols[k])} kg">
+        <span class="block w-full max-w-[24px] rounded-t-[4px] ${vols[k] ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}" style="height:${vols[k] ? Math.max(3, (vols[k] / maxVol) * 100) : 2}%"></span>
+      </button>`).join('')}
+    </div>
+    <div class="mt-1 flex gap-2 text-center text-[10px] muted">${weeks.map((w) => `<span class="flex-1">${fmtShort(w).replace(' ', ' ')}</span>`).join('')}</div>
+  </section>`;
+
+  // Per-exercise progress
+  const logged = state.exercises.filter((e) => sessionsFor(e.id).length);
+  if (!statsExId || !logged.some((e) => e.id === statsExId)) statsExId = logged[0]?.id || null;
+  const ex = exById(statsExId);
+  if (ex) {
+    const ss = sessionsFor(ex.id).slice().reverse();
+    const pts = ss.map((h) => ({ date: h.date, v: Math.round(bestE1(h.sets) * 10) / 10, top: evaluate(ex, h.sets) }));
+    const first = pts[0].v, lastV = pts[pts.length - 1].v;
+    const change = first ? ((lastV - first) / first) * 100 : 0;
+    const best = Math.max(...pts.map((p) => p.v));
+    const heaviest = Math.max(...ss.map((h) => topWeight(h.sets)));
+    const bestSet = ss.flatMap((h) => h.sets).reduce((b, s) => (s.weight * s.reps > b.weight * b.reps ? s : b));
+    html += `<section class="card mb-4">
+      <h3 class="font-semibold">Exercise progress</h3>
+      <p class="mb-3 text-xs muted">Estimated 1-rep max per session (Epley formula). Tap the chart for details.</p>
+      <select class="input mb-3" data-action="stats-ex">${logged.map((e) => `<option value="${e.id}" ${e.id === ex.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
+      ${pts.length > 1 ? lineChart(pts) : '<p class="rounded-xl bg-slate-100 p-4 text-center text-sm muted dark:bg-slate-800/60">Log one more session to see a trend line.</p>'}
+      <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div><p class="muted">Best est. 1RM</p><p class="text-lg font-bold tabular-nums">${fmt(best)} kg</p></div>
+        <div><p class="muted">Change since first</p><p class="text-lg font-bold tabular-nums">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</p></div>
+        <div><p class="muted">Heaviest weight</p><p class="text-lg font-bold tabular-nums">${fmt(heaviest)} kg</p></div>
+        <div><p class="muted">Best set (kg × reps)</p><p class="text-lg font-bold tabular-nums">${fmt(bestSet.weight)} × ${bestSet.reps}</p></div>
+      </div>
+    </section>`;
+  }
+  return html;
+}
+
+/** Single-series line chart (inline SVG) with a tap/hover tooltip. */
+function lineChart(points) {
+  const W = 340, H = 190, pl = 40, pr = 14, pt = 14, pb = 24;
+  const vs = points.map((p) => p.v);
+  let lo = Math.min(...vs), hi = Math.max(...vs);
+  const pad = (hi - lo) * 0.15 || Math.max(2, hi * 0.05);
+  lo = Math.max(0, lo - pad); hi += pad;
+  const raw = (hi - lo) / 3;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let t = lo; t <= hi + 1e-9; t += step) ticks.push(round2(t));
+
+  const t0 = parseISO(points[0].date).getTime(), t1 = parseISO(points[points.length - 1].date).getTime();
+  const x = (d) => pl + (t1 === t0 ? (W - pl - pr) / 2 : ((parseISO(d).getTime() - t0) / (t1 - t0)) * (W - pl - pr));
+  const y = (v) => pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb);
+  const xy = points.map((p) => ({ x: round2(x(p.date)), y: round2(y(p.v)),
+    label: `<b>${fmt(p.v)} kg</b> est. 1RM<br><span class='opacity-80'>${fmtShort(p.date)} · ${fmt(p.top.top)} kg × ${p.top.reps.join('/')}</span>` }));
+  const path = xy.map((p, k) => `${k ? 'L' : 'M'}${p.x},${p.y}`).join(' ');
+  const lastP = xy[xy.length - 1];
+
+  return `<div class="relative" data-chart="line" data-w="${W}" data-h="${H}" data-points="${esc(JSON.stringify(xy))}">
+    <svg viewBox="0 0 ${W} ${H}" class="h-auto w-full touch-none select-none overflow-visible" role="img" aria-label="Estimated 1RM trend">
+      ${ticks.map((t) => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="stroke-slate-200 dark:stroke-slate-800" stroke-width="1"/>
+        <text x="${pl - 6}" y="${y(t) + 3.5}" text-anchor="end" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmt(t)}</text>`).join('')}
+      <text x="${pl}" y="${H - 6}" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmtShort(points[0].date)}</text>
+      <text x="${W - pr}" y="${H - 6}" font-size="10" text-anchor="end" class="fill-slate-500 dark:fill-slate-400">${fmtShort(points[points.length - 1].date)}</text>
+      <line data-cross x1="0" x2="0" y1="${pt}" y2="${H - pb}" class="stroke-slate-400 dark:stroke-slate-500" stroke-width="1" visibility="hidden"/>
+      <path d="${path}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${xy.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#6366f1" class="stroke-white dark:stroke-slate-900" stroke-width="2"/>`).join('')}
+      <circle data-focus r="6" fill="#6366f1" class="stroke-white dark:stroke-slate-900" stroke-width="2" visibility="hidden"/>
+      <text x="${Math.min(lastP.x, W - pr)}" y="${lastP.y - 10}" text-anchor="end" font-size="11" font-weight="700" class="fill-slate-900 dark:fill-slate-100">${fmt(points[points.length - 1].v)}</text>
+    </svg>
+    <div data-tip class="pointer-events-none absolute z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"></div>
+  </div>`;
+}
+
+function attachCharts() {
+  document.querySelectorAll('[data-chart=line]').forEach((wrap) => {
+    const pts = JSON.parse(wrap.dataset.points);
+    const W = +wrap.dataset.w, H = +wrap.dataset.h;
+    const svg = wrap.querySelector('svg'), tip = wrap.querySelector('[data-tip]');
+    const focus = svg.querySelector('[data-focus]'), cross = svg.querySelector('[data-cross]');
+    const show = (e) => {
+      const rect = svg.getBoundingClientRect();
+      const vx = ((e.clientX - rect.left) / rect.width) * W;
+      const p = pts.reduce((b, q) => (Math.abs(q.x - vx) < Math.abs(b.x - vx) ? q : b));
+      focus.setAttribute('cx', p.x); focus.setAttribute('cy', p.y); focus.setAttribute('visibility', 'visible');
+      cross.setAttribute('x1', p.x); cross.setAttribute('x2', p.x); cross.setAttribute('visibility', 'visible');
+      tip.innerHTML = p.label;
+      tip.style.left = `${Math.min(80, Math.max(20, (p.x / W) * 100))}%`;
+      tip.style.top = `${(p.y / H) * 100 - 4}%`;
+      tip.classList.remove('hidden');
+    };
+    svg.addEventListener('pointermove', show);
+    svg.addEventListener('pointerdown', show);
+    svg.addEventListener('pointerleave', (e) => {
+      if (e.pointerType !== 'mouse') return; // keep the tooltip on touch
+      tip.classList.add('hidden'); focus.setAttribute('visibility', 'hidden'); cross.setAttribute('visibility', 'hidden');
+    });
+  });
+  document.querySelectorAll('[data-chart=bars] [data-action=bar]').forEach((b) =>
+    b.addEventListener('pointerenter', () => b.click()));
+}
+
+// ----- Exercises tab -----
 function exercisesView() {
   const editing = editingId ? exById(editingId) : null;
-  const f = editing || { name: '', type: 'dumbbell', machineStep: 4, repMin: 8, repMax: 12, sets: 3, startWeight: '' };
+  const f = editing || { name: '', type: 'dumbbell', machineStep: 4, repMin: 8, repMax: 12, sets: 3, startWeight: '', muscles: {}, rest: 90 };
   const radio = (name, value, label, checked) => `<label class="block">
       <input type="radio" name="${name}" value="${value}" class="seg-input sr-only" ${checked ? 'checked' : ''}>
       <span class="seg">${label}</span>
@@ -459,6 +1071,13 @@ function exercisesView() {
         ${radio('machineStep', '4', '4 kg', f.machineStep !== 3)}
       </div>
     </div>
+    <div>
+      <span class="label">Muscles worked</span>
+      <div class="flex flex-wrap gap-2" id="muscle-chips">
+        ${MUSCLES.map((m) => `<button type="button" class="chip" data-action="muscle" data-m="${m}" data-level="${f.muscles?.[m] || 0}">${m}</button>`).join('')}
+      </div>
+      <p class="mt-1 text-xs muted">Tap once = primary (counts 1 set), twice = secondary (½ set), again = off.</p>
+    </div>
     <div class="grid grid-cols-2 gap-3">
       <div>
         <label class="label" for="f-min">Rep range min</label>
@@ -476,6 +1095,12 @@ function exercisesView() {
         <label class="label" for="f-start">Starting weight (kg)</label>
         <input id="f-start" name="startWeight" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" value="${f.startWeight}">
       </div>
+      <div class="col-span-2">
+        <label class="label" for="f-rest">Rest between sets</label>
+        <select id="f-rest" name="rest" class="input">
+          ${[45, 60, 75, 90, 120, 150, 180, 240, 300].map((s) => `<option value="${s}" ${(f.rest || 90) === s ? 'selected' : ''}>${fmtSecs(s)} min</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div class="flex gap-3">
       ${editing ? `<button type="button" class="btn-ghost flex-1" data-action="cancel-edit">Cancel</button>` : ''}
@@ -488,19 +1113,17 @@ function exercisesView() {
   html += `<div class="space-y-3">${state.exercises.map((ex) => {
     const p = predict(ex);
     const count = sessionsFor(ex.id).length;
+    const muscles = muscleLabel(ex);
     return `<article class="card">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
           <h3 class="truncate font-bold">${esc(ex.name)}</h3>
-          <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets · ${count} session${count === 1 ? '' : 's'}</p>
+          <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets · rest ${fmtSecs(ex.rest || 90)} · ${count} session${count === 1 ? '' : 's'}</p>
+          <p class="mt-0.5 text-xs ${muscles ? 'text-slate-600 dark:text-slate-300' : 'text-amber-700 dark:text-amber-400'}">${muscles || 'No muscles tagged'}</p>
         </div>
         <div class="-mr-2 -mt-1 flex">
-          <button class="icon-btn" data-action="edit-ex" data-id="${ex.id}" aria-label="Edit ${esc(ex.name)}">
-            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-          </button>
-          <button class="icon-btn" data-action="delete-ex" data-id="${ex.id}" aria-label="Delete ${esc(ex.name)}">
-            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
-          </button>
+          <button class="icon-btn" data-action="edit-ex" data-id="${ex.id}" aria-label="Edit ${esc(ex.name)}">${ICON_EDIT}</button>
+          <button class="icon-btn" data-action="delete-ex" data-id="${ex.id}" aria-label="Delete ${esc(ex.name)}">${ICON_TRASH}</button>
         </div>
       </div>
       <div class="mt-3 flex items-center justify-between gap-2 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
@@ -509,51 +1132,6 @@ function exercisesView() {
       </div>
     </article>`;
   }).join('')}</div>`;
-  return html;
-}
-
-function historyView() {
-  let html = `<div class="mb-4 flex items-center justify-between gap-2">
-    <h2 class="text-2xl font-bold">History</h2>
-    <div class="flex gap-2">
-      <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Export</button>
-      <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Import</button>
-    </div>
-  </div>`;
-
-  if (!state.history.length) {
-    return html + emptyState('No sessions logged yet', 'Finish a workout and it will appear here.', 'Start a workout', 'goto-today');
-  }
-
-  const byDate = {};
-  state.history.forEach((h) => (byDate[h.date] ||= []).push(h));
-  const dates = Object.keys(byDate).sort().reverse();
-
-  html += dates.map((date) => `<section class="mb-5">
-    <h3 class="mb-2 text-sm font-bold uppercase tracking-wide muted">${fmtDate(date)}</h3>
-    <div class="space-y-2">
-      ${byDate[date].sort((a, b) => a.ts - b.ts).map((h) => {
-        const ex = exById(h.exerciseId);
-        const ev = ex ? evaluate(ex, h.sets) : null;
-        return `<article class="card py-3">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <p class="truncate font-semibold">${ex ? esc(ex.name) : '<span class="muted">Deleted exercise</span>'}</p>
-              <p class="mt-0.5 text-sm tabular-nums muted">${h.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(' · ')}</p>
-            </div>
-            <div class="flex shrink-0 items-center gap-1">
-              ${ev ? (ev.hitCeiling ? `<span class="badge bg-emerald-500/15 text-emerald-600 dark:text-emerald-300">Ceiling hit</span>` : `<span class="badge bg-slate-500/10 text-slate-600 dark:text-slate-300">${ev.total} reps</span>`) : ''}
-              <button class="icon-btn h-9 w-9" data-action="delete-session" data-id="${h.id}" aria-label="Delete session">
-                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-              </button>
-            </div>
-          </div>
-        </article>`;
-      }).join('')}
-    </div>
-  </section>`).join('');
-
-  html += `<button class="btn-danger mt-4 w-full" data-action="reset">Erase all data</button>`;
   return html;
 }
 
@@ -570,30 +1148,171 @@ function syncMachineToggle() {
   form.querySelector('#step-hint').textContent = hints[type] || '';
 }
 
+// ----- History tab -----
+function historyView() {
+  let html = `<div class="mb-4 flex items-center justify-between gap-2">
+    <h2 class="text-2xl font-bold">History</h2>
+    <div class="flex gap-2">
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Export</button>
+      <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Import</button>
+    </div>
+  </div>`;
+
+  if (!state.history.length) {
+    html += emptyState('No sessions logged yet', 'Finish a workout and it will appear here.', 'Start a workout', 'goto-today');
+  } else {
+    const byDate = {};
+    state.history.forEach((h) => (byDate[h.date] ||= []).push(h));
+    const dates = Object.keys(byDate).sort().reverse();
+
+    html += dates.map((date) => `<section class="mb-5">
+      <h3 class="mb-2 text-sm font-bold uppercase tracking-wide muted">${fmtDate(date)}</h3>
+      <div class="space-y-2">
+        ${byDate[date].sort((a, b) => a.ts - b.ts).map((h) => {
+          const ex = exById(h.exerciseId);
+          const ev = ex ? evaluate(ex, h.sets) : null;
+          const prs = prsFor(h);
+          return `<article class="card py-3">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <p class="truncate font-semibold">${ex ? esc(ex.name) : '<span class="muted">Deleted exercise</span>'}</p>
+                <p class="mt-0.5 text-sm tabular-nums muted">${h.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(' · ')}</p>
+                ${h.rpe || h.note ? `<p class="mt-0.5 text-xs muted">${[h.rpe ? `RPE ${h.rpe}` : '', h.note ? `“${esc(h.note)}”` : ''].filter(Boolean).join(' · ')}</p>` : ''}
+                ${prs.length ? `<p class="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">🏆 ${prs.join(' · ')}</p>` : ''}
+              </div>
+              <div class="flex shrink-0 items-center gap-1">
+                ${h.deload ? '<span class="badge bg-amber-500/15 text-amber-700 dark:text-amber-300">Deload</span>' : ''}
+                ${ev ? (ev.hitCeiling ? `<span class="badge bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Ceiling hit</span>` : `<span class="badge bg-slate-500/10 text-slate-600 dark:text-slate-300">${ev.total} reps</span>`) : ''}
+                <button class="icon-btn h-9 w-9" data-action="delete-session" data-id="${h.id}" aria-label="Delete session">
+                  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+              </div>
+            </div>
+          </article>`;
+        }).join('')}
+      </div>
+    </section>`).join('');
+  }
+
+  html += `<section class="card mt-6 space-y-3">
+    <h3 class="font-semibold">Settings</h3>
+    <label class="grid grid-cols-[1fr_7rem] items-center gap-3">
+      <span><span class="block font-medium">Barbell weight</span><span class="text-xs muted">Used by the plate calculator</span></span>
+      <select class="input py-2" data-action="bar-weight">
+        ${[20, 15, 10, 7.5].map((w) => `<option value="${w}" ${state.settings.barWeight === w ? 'selected' : ''}>${w} kg</option>`).join('')}
+      </select>
+    </label>
+    <button class="btn-danger w-full" data-action="reset">Erase all data</button>
+  </section>`;
+  return html;
+}
+
+// ----- Modals -----
+function renderModal() {
+  const box = document.getElementById('modal');
+  if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
+  document.getElementById('modal-body').innerHTML = modal.type === 'day' ? dayModal(modal.date) : summaryModal();
+  box.classList.remove('hidden'); box.classList.add('flex');
+}
+
+function dayModal(date) {
+  const r = plannedRoutine(date);
+  const weekly = routineById(state.schedule.weekly[dow(date)]);
+  const overridden = state.schedule.overrides[date] !== undefined;
+  const logged = state.history.filter((h) => h.date === date).map((h) => exById(h.exerciseId)?.name).filter(Boolean);
+  const statusText = { done: '✓ Workout logged', missed: 'Missed', planned: 'Planned', rest: 'Rest day' }[dayStatus(date)];
+
+  return `<div class="mb-4 flex items-start justify-between gap-2">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider muted">${statusText}${overridden ? ' · changed' : ''}</p>
+        <h3 class="text-xl font-bold">${fmtDay(date)}</h3>
+        <p class="text-sm muted">${r ? `Workout: <b class="text-slate-900 dark:text-slate-100">${esc(r.name)}</b>` : 'No workout planned'}</p>
+      </div>
+      <button class="icon-btn -mr-2" data-action="close-modal" aria-label="Close">${ICON_X}</button>
+    </div>
+    ${logged.length ? `<p class="mb-4 rounded-xl bg-emerald-500/10 p-3 text-sm">Logged: ${logged.map(esc).join(', ')}</p>` : ''}
+    <div class="space-y-4">
+      <label class="block">
+        <span class="label">Workout on this day</span>
+        <select class="input" data-action="day-set" data-date="${date}" ${state.routines.length ? '' : 'disabled'}>
+          <option value="">Rest / skip</option>
+          ${state.routines.map((x) => `<option value="${x.id}" ${r?.id === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+        </select>
+      </label>
+      ${r ? `<div>
+        <span class="label">Move ${esc(r.name)} to another day</span>
+        <div class="flex gap-2">
+          <input type="date" id="move-to" class="input" value="${addDays(date, 1)}">
+          <button class="btn-primary shrink-0" data-action="day-move" data-date="${date}">Move</button>
+        </div>
+      </div>` : ''}
+      ${overridden ? `<button class="btn-ghost w-full" data-action="day-reset" data-date="${date}">Reset to weekly plan (${weekly ? esc(weekly.name) : 'Rest'})</button>` : ''}
+      ${r && date === todayISO() && !(state.draft && state.draft.entries.length) ? `<button class="btn-success w-full" data-action="start-routine" data-id="${r.id}">Start ${esc(r.name)} now</button>` : ''}
+    </div>`;
+}
+
+function summaryModal() {
+  const { saved, prs, ups, stalls } = modal;
+  return `<div class="text-center">
+      <p class="text-4xl">${prs.length ? '🏆' : '💪'}</p>
+      <h3 class="mt-2 text-2xl font-bold">Workout saved</h3>
+      <p class="text-sm muted">${saved} exercise${saved === 1 ? '' : 's'} logged</p>
+    </div>
+    ${prs.length ? `<div class="mt-4 rounded-xl bg-amber-500/10 p-3">
+      <p class="font-semibold text-amber-800 dark:text-amber-300">New personal records</p>
+      <ul class="mt-1 space-y-0.5 text-sm">${prs.map((p) => `<li><b>${esc(p.name)}</b> · ${p.items.join(' · ')}</li>`).join('')}</ul>
+    </div>` : ''}
+    ${ups.length ? `<div class="mt-3 rounded-xl bg-emerald-500/10 p-3">
+      <p class="font-semibold text-emerald-800 dark:text-emerald-300">Weight goes up next time</p>
+      <ul class="mt-1 space-y-0.5 text-sm">${ups.map((u) => `<li><b>${esc(u.name)}</b> → ${fmt(u.weight)} kg</li>`).join('')}</ul>
+    </div>` : ''}
+    ${stalls.length ? `<div class="mt-3 rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
+      <p class="font-semibold">Plateau watch</p>
+      <p class="text-sm muted">${stalls.map(esc).join(', ')}: no progress for 3 sessions. A deload will be offered next time.</p>
+    </div>` : ''}
+    <button class="btn-primary mt-5 w-full" data-action="close-modal">Done</button>`;
+}
+
 // ---------- Actions --------------------------------------------------------
 function finishWorkout() {
   const d = state.draft;
   const ts = Date.now();
-  let saved = 0, ups = 0;
+  const saved = [];
   d.entries.forEach((entry, k) => {
     const ex = exById(entry.exerciseId);
     if (!ex) return;
     const sets = cleanSets(entry.sets, predict(ex).weight);
     if (!sets.length) return;
-    state.history.push({ id: uid(), exerciseId: ex.id, date: d.date || todayISO(), ts: ts + k, sets });
-    saved++;
-    if (evaluate(ex, sets).hitCeiling) ups++;
+    const h = { id: uid(), exerciseId: ex.id, date: d.date || todayISO(), ts: ts + k, sets };
+    if (entry.note.trim()) h.note = entry.note.trim();
+    if (entry.rpe) h.rpe = entry.rpe;
+    if (entry.deload) h.deload = true;
+    state.history.push(h);
+    saved.push(h);
   });
-  if (!saved) return toast('Log at least one set with reps first');
+  if (!saved.length) return toast('Log at least one set with reps first');
+
+  const prs = [], ups = [], stalls = [];
+  saved.forEach((h) => {
+    const ex = exById(h.exerciseId);
+    const items = prsFor(h);
+    if (items.length) prs.push({ name: ex.name, items });
+    const p = predict(ex);
+    if (p.rule === 'up') ups.push({ name: ex.name, weight: p.weight });
+    if (plateau(ex)) stalls.push(ex.name);
+  });
   state.draft = null;
+  rest = null;
+  tickRest();
+  modal = { type: 'summary', saved: saved.length, prs, ups, stalls };
   saveState();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  toast(`Saved ${saved} exercise${saved === 1 ? '' : 's'}${ups ? ` · ${ups} weight increase${ups === 1 ? '' : 's'} next time` : ''}`);
 }
 
 function exportData() {
-  const blob = new Blob([JSON.stringify({ exercises: state.exercises, history: state.history }, null, 2)], { type: 'application/json' });
+  const { draft, ...data } = state;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `overload-tracker-${todayISO()}.json`;
@@ -608,8 +1327,8 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   try {
     const data = JSON.parse(await file.text());
     if (!Array.isArray(data.exercises) || !Array.isArray(data.history)) throw new Error('bad file');
-    if (!confirm('Replace all current exercises and history with this backup?')) return;
-    state = { exercises: data.exercises, history: data.history, draft: null };
+    if (!confirm('Replace all current data with this backup?')) return;
+    state = migrate({ ...data, draft: null });
     saveState();
     render();
     toast('Backup imported');
@@ -619,14 +1338,15 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', (e) => {
+  if (e.target.id === 'modal') { modal = null; renderModal(); return; }
   const btn = e.target.closest('[data-action]');
-  if (!btn || btn.tagName === 'INPUT') return;
+  if (!btn || btn.tagName === 'INPUT' || btn.tagName === 'SELECT') return;
   const { action, id } = btn.dataset;
   const ei = Number(btn.dataset.e), si = Number(btn.dataset.s);
   const entry = state.draft?.entries[ei];
 
   switch (action) {
-    case 'nav': view = btn.dataset.view; editingId = null; render(); window.scrollTo(0, 0); return;
+    case 'nav': view = btn.dataset.view; editingId = null; routineEdit = null; render(); window.scrollTo(0, 0); return;
     case 'goto-exercises': view = 'exercises'; render(); return;
     case 'goto-today': view = 'today'; render(); return;
     case 'toggle-theme': {
@@ -634,8 +1354,17 @@ document.addEventListener('click', (e) => {
       try { localStorage.setItem('pot.theme', dark ? 'dark' : 'light'); } catch (err) {}
       return;
     }
+
+    // Workout logging
+    case 'start-routine':
+      if (state.draft?.entries.length && !confirm('Replace the workout in progress?')) return;
+      startRoutine(id); modal = null; window.scrollTo(0, 0); break;
     case 'add-entry': addEntry(id); break;
-    case 'add-all': state.exercises.filter((x) => !state.draft.entries.some((en) => en.exerciseId === x.id)).forEach((x) => addEntry(x.id)); break;
+    case 'add-all': {
+      const inDraft = new Set((state.draft?.entries || []).map((en) => en.exerciseId));
+      state.exercises.filter((x) => !inDraft.has(x.id)).forEach((x) => addEntry(x.id));
+      break;
+    }
     case 'remove-entry':
       if (entry.sets.some((s) => s.reps !== '') && !confirm('Remove this exercise and its logged sets?')) return;
       state.draft.entries.splice(ei, 1); break;
@@ -647,17 +1376,98 @@ document.addEventListener('click', (e) => {
     case 'remove-set': entry.sets.splice(si, 1); break;
     case 'fill-set': {
       const ex = exById(entry.exerciseId), p = predict(ex), s = entry.sets[si];
-      if (parseInt(s.reps, 10) > 0) s.reps = '';             // tap again to un-mark
+      if (parseInt(s.reps, 10) > 0) s.reps = ''; // tap again to un-mark
       else {
         if (s.weight === '') s.weight = String(p.weight);
         s.reps = String(targetReps(p, ex, si));
+        startRest(ex.rest || 90, ex.name);
       }
+      break;
+    }
+    case 'rest-start': { const ex = exById(entry.exerciseId); startRest(ex.rest || 90, ex.name); return; }
+    case 'rest-adjust':
+      if (rest) {
+        rest.end = Math.max(Date.now(), rest.end + Number(btn.dataset.sec) * 1000);
+        rest.total = Math.max(rest.total, Math.ceil((rest.end - Date.now()) / 1000));
+        rest.alerted = false;
+        tickRest();
+      }
+      return;
+    case 'rest-skip': rest = null; tickRest(); return;
+    case 'toggle-warmup': entry.showWarmup = !entry.showWarmup; break;
+    case 'apply-deload': {
+      const stall = plateau(exById(entry.exerciseId));
+      if (!stall) return;
+      entry.deload = true;
+      entry.sets.forEach((s) => (s.weight = String(stall.weight)));
+      break;
+    }
+    case 'undo-deload': {
+      const p = predict(exById(entry.exerciseId));
+      entry.deload = false;
+      entry.sets.forEach((s) => (s.weight = String(p.weight)));
       break;
     }
     case 'finish': return finishWorkout();
     case 'discard':
-      if (!confirm('Discard today’s logged sets?')) return;
-      state.draft = null; break;
+      if (!confirm('Discard this workout’s logged sets?')) return;
+      state.draft = null; rest = null; tickRest(); break;
+
+    // Plan
+    case 'open-day': modal = { type: 'day', date: btn.dataset.date }; renderModal(); return;
+    case 'close-modal': modal = null; renderModal(); return;
+    case 'plan-week': {
+      const dir = Number(btn.dataset.dir);
+      planWeek = dir ? addDays(planWeek, 7 * dir) : weekStart(todayISO());
+      break;
+    }
+    case 'day-move': {
+      const from = btn.dataset.date, to = document.getElementById('move-to').value;
+      const r = plannedRoutine(from);
+      if (!r || !to || to === from) return toast('Pick a different day');
+      const replaced = plannedRoutine(to);
+      setDayPlan(from, null);
+      setDayPlan(to, r.id);
+      modal = null;
+      toast(`${r.name} moved to ${fmtDay(to)}${replaced && replaced.id !== r.id ? ` (replaces ${replaced.name})` : ''}`);
+      break;
+    }
+    case 'day-reset': delete state.schedule.overrides[btn.dataset.date]; break;
+    case 'new-routine': routineEdit = { id: null, name: '', exerciseIds: [] }; break;
+    case 'edit-routine': { const r = routineById(id); routineEdit = { id: r.id, name: r.name, exerciseIds: r.exerciseIds.filter(exById) }; break; }
+    case 'cancel-routine': routineEdit = null; break;
+    case 'routine-move': {
+      const k = Number(btn.dataset.k), j = k + Number(btn.dataset.dir);
+      const ids = routineEdit.exerciseIds;
+      [ids[k], ids[j]] = [ids[j], ids[k]];
+      render(); return;
+    }
+    case 'routine-remove': routineEdit.exerciseIds.splice(Number(btn.dataset.k), 1); render(); return;
+    case 'save-routine': {
+      const name = routineEdit.name.trim();
+      if (!name) return toast('Give the routine a name');
+      if (!routineEdit.exerciseIds.length) return toast('Add at least one exercise');
+      if (routineEdit.id) Object.assign(routineById(routineEdit.id), { name, exerciseIds: routineEdit.exerciseIds });
+      else state.routines.push({ id: uid(), name, exerciseIds: routineEdit.exerciseIds });
+      toast(`Saved ${name}`);
+      routineEdit = null;
+      break;
+    }
+    case 'delete-routine': {
+      const r = routineById(id);
+      if (!confirm(`Delete the “${r.name}” routine? It will be removed from your schedule. Logged history is kept.`)) return;
+      state.routines = state.routines.filter((x) => x.id !== id);
+      Object.keys(state.schedule.weekly).forEach((k) => { if (state.schedule.weekly[k] === id) delete state.schedule.weekly[k]; });
+      Object.keys(state.schedule.overrides).forEach((k) => { if (state.schedule.overrides[k] === id) delete state.schedule.overrides[k]; });
+      break;
+    }
+
+    // Stats
+    case 'stats-week': statsWeek = addDays(statsWeek, 7 * Number(btn.dataset.dir)); render(); return;
+    case 'bar': btn.closest('[data-chart]').querySelector('[data-readout]').innerHTML = btn.dataset.readout; return;
+
+    // Exercises
+    case 'muscle': btn.dataset.level = { 0: '1', 1: '0.5', 0.5: '0' }[btn.dataset.level] ?? '0'; return;
     case 'edit-ex': editingId = id; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return;
     case 'cancel-edit': editingId = null; render(); return;
     case 'delete-ex': {
@@ -665,25 +1475,28 @@ document.addEventListener('click', (e) => {
       if (!confirm(`Delete “${ex.name}” and all of its history?`)) return;
       state.exercises = state.exercises.filter((x) => x.id !== id);
       state.history = state.history.filter((h) => h.exerciseId !== id);
+      state.routines.forEach((r) => (r.exerciseIds = r.exerciseIds.filter((x) => x !== id)));
       if (state.draft) state.draft.entries = state.draft.entries.filter((en) => en.exerciseId !== id);
       if (editingId === id) editingId = null;
       break;
     }
+
+    // History
     case 'delete-session':
       if (!confirm('Delete this logged session? Future targets will be recalculated.')) return;
       state.history = state.history.filter((h) => h.id !== id); break;
     case 'export': return exportData();
     case 'import': document.getElementById('import-file').click(); return;
     case 'reset':
-      if (!confirm('Erase ALL exercises and history from this browser? This cannot be undone.')) return;
-      state = { exercises: [], history: [], draft: null }; break;
+      if (!confirm('Erase ALL exercises, routines, schedule and history from this browser? This cannot be undone.')) return;
+      state = migrate({}); rest = null; tickRest(); break;
     default: return;
   }
   saveState();
   render();
 });
 
-// Live set logging: update state without re-rendering (keeps keyboard focus).
+// Live logging: update state without re-rendering (keeps keyboard focus).
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.field) {
@@ -694,23 +1507,38 @@ document.addEventListener('input', (e) => {
     const ex = exById(entry.exerciseId);
     document.getElementById(`row-${ei}-${si}`).classList.toggle('done', parseInt(entry.sets[si].reps, 10) > 0);
     document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, predict(ex));
+  } else if (el.dataset.entryField) {
+    state.draft.entries[Number(el.dataset.e)][el.dataset.entryField] = el.value;
+    saveState();
+  } else if (el.dataset.routineField) {
+    routineEdit[el.dataset.routineField] = el.value;
   }
 });
 
 document.addEventListener('change', (e) => {
   const el = e.target;
-  if (el.dataset.action === 'draft-date') {
-    ensureDraft().date = el.value || todayISO();
-    saveState();
-  } else if (el.name === 'type') {
-    syncMachineToggle();
+  switch (el.dataset.action) {
+    case 'draft-date': state.draft.date = el.value || todayISO(); break;
+    case 'weekly-set':
+      if (el.value) state.schedule.weekly[el.dataset.dow] = el.value;
+      else delete state.schedule.weekly[el.dataset.dow];
+      render(); break;
+    case 'day-set': setDayPlan(el.dataset.date, el.value || null); render(); break;
+    case 'routine-add': if (el.value) routineEdit.exerciseIds.push(el.value); render(); return;
+    case 'stats-ex': statsExId = el.value; render(); return;
+    case 'bar-weight': state.settings.barWeight = Number(el.value); break;
+    default:
+      if (el.name === 'type') syncMachineToggle();
+      return;
   }
+  saveState();
 });
 
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'ex-form') return;
   e.preventDefault();
-  const fd = new FormData(e.target);
+  const form = e.target;
+  const fd = new FormData(form);
   const name = String(fd.get('name')).trim();
   const repMin = parseInt(fd.get('repMin'), 10);
   const repMax = parseInt(fd.get('repMax'), 10);
@@ -720,7 +1548,13 @@ document.addEventListener('submit', (e) => {
   if (!(repMin > 0 && repMax > repMin)) return toast('Rep range max must be higher than min');
   if (!(sets >= 1 && sets <= 10)) return toast('Working sets must be between 1 and 10');
 
-  const data = { name, type: fd.get('type'), machineStep: Number(fd.get('machineStep')) === 3 ? 3 : 4, repMin, repMax, sets, startWeight };
+  const muscles = {};
+  form.querySelectorAll('#muscle-chips [data-m]').forEach((c) => { const l = Number(c.dataset.level); if (l) muscles[c.dataset.m] = l; });
+
+  const data = {
+    name, type: fd.get('type'), machineStep: Number(fd.get('machineStep')) === 3 ? 3 : 4,
+    repMin, repMax, sets, startWeight, muscles, rest: Number(fd.get('rest')) || 90,
+  };
   if (editingId) {
     Object.assign(exById(editingId), data);
     toast('Exercise updated');
