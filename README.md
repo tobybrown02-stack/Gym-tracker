@@ -29,7 +29,10 @@ and isn't subject to Safari clearing site data after 7 days without a visit.
 - **Plan** — up to 5 routines, a weekly repeating schedule, and a calendar
   where you can swap, skip or move any single day without changing the plan.
 - **Stats** — weekly sets per muscle (vs a 10–20 set target), weekly volume
-  trend, estimated 1RM chart per exercise, streaks and personal records.
+  trend, estimated 1RM chart per exercise, streaks, personal records, a weekly
+  nutrition summary (calories and protein vs target) and body measurements.
+- **Plate calculator** and **supersets** (rest starts after the last exercise
+  of the pair; routines remember the pairing).
 - **Exercises** — a built-in library of 60+ common exercises to add in bulk, plus equipment type, rep range, working sets, rest time and the
   muscles worked (primary = 1 set, secondary = ½ set).
 - **History** — every session with PR badges, export/import and settings.

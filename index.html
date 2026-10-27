@@ -492,6 +492,7 @@ function seedState() {
     schedule: { weekly: {}, overrides: {} },
     settings: { barWeight: 20 },
     food: emptyFood(),
+    body: { measures: {} },
     draft: null,
   };
 }
@@ -510,6 +511,7 @@ function migrate(d) {
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
     settings: { barWeight: 20, ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
+    body: { measures: {}, ...(d.body || {}) },
     draft: d.draft ? { routineId: null, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -587,6 +589,7 @@ function startRoutine(id, date = todayISO()) {
   if (!r) return;
   state.draft = { date, routineId: id, entries: [], startedAt: Date.now() };
   r.exerciseIds.forEach(addEntry);
+  state.draft.entries.forEach((en) => (en.ss = !!r.links?.[en.exerciseId]));
   view = 'today';
 }
 
@@ -704,7 +707,9 @@ function todayView() {
   const d = state.draft;
   const active = d && d.entries.length;
 
-  let html = `<section class="mb-4">${weekStrip(weekStart(today))}</section>`;
+  let html = `<section class="mb-4">${weekStrip(weekStart(today))}
+    <div class="mt-2 flex justify-end"><button class="link text-xs" data-action="open-plates">Plate calculator</button></div>
+  </section>`;
 
   if (!active) {
     const r = plannedRoutine(today);
@@ -815,7 +820,7 @@ function warmupHtml(entry, ex, p, stall) {
       ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
         : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
       <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${loadLabel(ex, workWeight)}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
-      ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar.</p>` : ''}
+      ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar. <button class="link text-xs" data-action="open-plates" data-total="${workWeight}">Open plate calculator</button></p>` : ''}
     </div>`;
 }
 
@@ -840,7 +845,11 @@ function entryCard(entry, i) {
     </div>`;
   }
 
-  return `<article class="card mb-4" data-entry="${i}">
+  const entries = state.draft.entries;
+  const next = entries[i + 1] && exById(entries[i + 1].exerciseId);
+  const inSuperset = entry.ss || entries[i - 1]?.ss;
+  return `<article class="card mb-4 ${inSuperset ? 'border-indigo-500 dark:border-indigo-500' : ''}" data-entry="${i}">
+    ${inSuperset ? `<p class="mb-1 text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">⛓ Superset${entry.ss && next ? ` · then ${esc(next.name)}` : ''}</p>` : ''}
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0">
         <h3 class="truncate text-lg font-bold">${esc(ex.name)}</h3>
@@ -881,6 +890,7 @@ function entryCard(entry, i) {
       <div class="flex shrink-0 gap-4">
         <button class="link" data-action="add-set" data-e="${i}">+ Set</button>
         <button class="link" data-action="rest-start" data-e="${i}">⏱ ${fmtSecs(ex.rest || 90)}</button>
+        ${next ? `<button class="link ${entry.ss ? '' : 'opacity-70'}" data-action="toggle-ss" data-e="${i}" aria-pressed="${!!entry.ss}">${entry.ss ? '⛓ Unlink' : '⛓ Superset'}</button>` : ''}
       </div>
       <p class="text-right text-sm" id="progress-${i}">${progressHtml(entry, ex, p)}</p>
     </div>
@@ -894,21 +904,26 @@ function entryCard(entry, i) {
   </article>`;
 }
 
+/** Tiny single-series trend line (no axes) for inline use. */
+function sparkSvg(vals) {
+  const lo = Math.min(...vals), hi = Math.max(...vals), W = 84, H = 24;
+  const pts = vals.map((v, k) => [round2((k / (vals.length - 1)) * (W - 4) + 2), round2(hi === lo ? H / 2 : H - 3 - ((v - lo) / (hi - lo)) * (H - 6))]);
+  const [lx, ly] = pts[pts.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" class="h-6 w-20 shrink-0 overflow-visible" aria-hidden="true">
+      <polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lx}" cy="${ly}" r="2.5" fill="#6366f1"/>
+    </svg>`;
+}
+
 /** Small trend line of the last few sessions: est. 1RM, or best-set reps for bodyweight. */
 function sparkHtml(ex) {
   const ss = sessionsFor(ex.id).slice(0, 8).reverse();
   if (ss.length < 2) return '';
   const bw = isBW(ex);
   const vals = ss.map((h) => (bw ? Math.max(...evaluate(ex, h.sets).reps) : round1(bestE1(h.sets))));
-  const lo = Math.min(...vals), hi = Math.max(...vals), W = 84, H = 24;
-  const pts = vals.map((v, k) => [round2((k / (vals.length - 1)) * (W - 4) + 2), round2(hi === lo ? H / 2 : H - 3 - ((v - lo) / (hi - lo)) * (H - 6))]);
-  const [lx, ly] = pts[pts.length - 1];
   const strong = (t) => `<b class="text-slate-700 dark:text-slate-200">${t}</b>`;
   return `<div class="mt-2 flex items-center gap-2 text-xs muted">
-    <svg viewBox="0 0 ${W} ${H}" class="h-6 w-20 shrink-0 overflow-visible" aria-hidden="true">
-      <polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${lx}" cy="${ly}" r="2.5" fill="#6366f1"/>
-    </svg>
+    ${sparkSvg(vals)}
     <span>${bw ? `Best set: ${vals[0]} → ${strong(`${vals[vals.length - 1]} reps`)}` : `Est. 1RM: ${fmt(vals[0])} → ${strong(`${fmt(vals[vals.length - 1])} kg`)}`} · last ${vals.length} sessions</span>
   </div>`;
 }
@@ -1071,8 +1086,8 @@ function weekStreak() {
 
 function statsView() {
   if (!state.history.length) {
-    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` +
-      emptyState('No data yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
+    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` + nutritionCard() + measuresCard() +
+      emptyState('No workouts yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
   }
   const thisWeek = weekStart(todayISO());
   const weekDates = DAYS.map((_, i) => addDays(thisWeek, i));
@@ -1094,6 +1109,7 @@ function statsView() {
     ${tile('Volume', fmtKg(weekVolume(thisWeek)), 'kg lifted this week')}
     ${tile('Records', prCount, 'PR sessions, last 30 days')}
   </section>`;
+  html += nutritionCard();
 
   // Weekly sets per muscle
   const { out, untagged } = muscleVolume(statsWeek);
@@ -1172,7 +1188,144 @@ function statsView() {
       </div>
     </section>`;
   }
-  return html;
+  return html + measuresCard();
+}
+
+// ----- Weekly nutrition summary -----
+function nutritionCard() {
+  const t0 = state.food.targets;
+  if (!t0 || !Object.keys(state.food.log).length) return '';
+  const thisWeek = weekStart(todayISO());
+  const days = DAYS.map((name, i) => {
+    const date = addDays(statsWeek, i);
+    return { name, date, tot: dayTotals(date), t: targetsFor(date), logged: dayEntries(date).length > 0, future: date > todayISO() };
+  });
+  const logged = days.filter((d) => d.logged);
+  const avg = (f) => (logged.length ? Math.round(sum(logged.map(f)) / logged.length) : 0);
+  const onKcal = logged.filter((d) => Math.abs(d.tot.kcal - d.t.kcal) <= d.t.kcal * 0.1).length;
+  const onProtein = logged.filter((d) => d.tot.protein >= d.t.protein * 0.9).length;
+  const max = Math.max(1, ...days.map((d) => Math.max(d.tot.kcal, d.t.kcal))) * 1.1;
+  const pct = (v) => `${(v / max) * 100}%`;
+  const readout = (d) => d.logged
+    ? `${fmtDay(d.date)}: <b class='text-slate-900 dark:text-slate-100'>${fmtKg(d.tot.kcal)}</b> of ${fmtKg(d.t.kcal)} kcal · ${Math.round(d.tot.protein)} g protein`
+    : `${fmtDay(d.date)}: ${d.future ? 'still to come' : 'nothing logged'}`;
+  const latest = [...days].reverse().find((d) => d.logged) || days[0];
+  const tile = (label, value, sub) => `<div class="rounded-xl bg-slate-100 p-2.5 dark:bg-slate-800/60"><p class="text-xs muted">${label}</p><p class="text-lg font-bold tabular-nums">${value}</p><p class="text-[11px] muted">${sub}</p></div>`;
+  return `<section class="card mb-4" data-chart="bars">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="font-semibold">Nutrition</h3>
+      <div class="flex items-center">
+        <button class="icon-btn h-8 w-8 text-xl" data-action="stats-week" data-dir="-1" aria-label="Previous week">‹</button>
+        <span class="text-sm font-semibold">${statsWeek === thisWeek ? 'This week' : `w/c ${fmtShort(statsWeek)}`}</span>
+        <button class="icon-btn h-8 w-8 text-xl" data-action="stats-week" data-dir="1" ${statsWeek >= thisWeek ? 'disabled' : ''} aria-label="Next week">›</button>
+      </div>
+    </div>
+    ${logged.length ? `<div class="mt-2 grid grid-cols-2 gap-2">
+      ${tile('Avg calories', fmtKg(avg((d) => d.tot.kcal)), `target ${fmtKg(avg((d) => d.t.kcal))}`)}
+      ${tile('Avg protein', `${avg((d) => d.tot.protein)} g`, `target ${avg((d) => d.t.protein)} g`)}
+      ${tile('Calories on target', `${onKcal} / ${logged.length}`, 'logged days within 10%')}
+      ${tile('Protein hit', `${onProtein} / ${logged.length}`, 'logged days at 90%+')}
+    </div>
+    <p class="mt-3 text-sm muted" data-readout>${readout(latest)}</p>
+    <div class="mt-2 flex h-28 items-end gap-2 border-b border-slate-200 dark:border-slate-800">
+      ${days.map((d) => `<button class="relative flex h-full flex-1 items-end justify-center" data-action="bar" data-readout="${readout(d)}" aria-label="${esc(readout(d).replace(/<[^>]+>/g, ''))}">
+        <span class="block w-full max-w-[24px] rounded-t-[4px] ${d.logged ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}" style="height:${d.logged ? pct(d.tot.kcal) : '2px'}"></span>
+        <span class="absolute left-1/2 w-[30px] -translate-x-1/2 border-t-2 border-slate-900 dark:border-slate-100" style="bottom:${pct(d.t.kcal)}"></span>
+      </button>`).join('')}
+    </div>
+    <div class="mt-1 flex gap-2 text-center text-[10px] muted">${days.map((d) => `<span class="flex-1">${d.name}</span>`).join('')}</div>
+    <p class="mt-2 flex items-center gap-4 text-xs muted">
+      <span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-sm bg-indigo-500"></span>Eaten</span>
+      <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-slate-900 dark:bg-slate-100"></span>Target</span>
+    </p>` : '<p class="mt-2 text-sm muted">No food logged this week.</p>'}
+  </section>`;
+}
+
+// ----- Body measurements -----
+const MEASURES = [['waist', 'Waist'], ['chest', 'Chest'], ['hips', 'Hips'], ['arms', 'Arms (flexed)'], ['thighs', 'Thighs'], ['neck', 'Neck']];
+
+function measureSeries(key) {
+  return Object.keys(state.body.measures).sort().filter((d) => state.body.measures[d][key] > 0).map((d) => ({ date: d, v: state.body.measures[d][key] }));
+}
+
+function measuresCard() {
+  const dates = Object.keys(state.body.measures).sort();
+  const rows = MEASURES.map(([key, label]) => ({ key, label, series: measureSeries(key) })).filter((r) => r.series.length);
+  const signed = (v) => `${v > 0 ? '+' : ''}${fmt(round1(v))}`;
+  return `<section class="card mb-4">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="font-semibold">Body measurements</h3>
+      ${dates.length ? `<span class="text-xs muted">Last: ${fmtShort(dates[dates.length - 1])}</span>` : ''}
+    </div>
+    ${rows.length ? `<ul class="mt-2 divide-y divide-slate-200 dark:divide-slate-800">${rows.map(({ label, series }) => {
+      const last = series[series.length - 1], first = series[0];
+      return `<li class="flex items-center justify-between gap-3 py-2">
+        <span class="min-w-0"><span class="block text-sm font-medium">${label}</span>
+          <span class="text-xs muted">${series.length > 1 ? `${signed(last.v - first.v)} cm since ${fmtShort(first.date)}` : 'First entry'}</span></span>
+        <span class="flex items-center gap-3">${series.length > 1 ? sparkSvg(series.map((x) => x.v)) : ''}<b class="w-16 text-right tabular-nums">${fmt(last.v)} cm</b></span>
+      </li>`;
+    }).join('')}</ul>`
+      : '<p class="mt-1 text-sm muted">Track waist, chest, arms and more every couple of weeks. Useful when the scale barely moves but your shape is changing.</p>'}
+    <button class="btn-ghost mt-3 w-full py-2.5" data-action="open-measures">${dates.length ? 'Log or edit measurements' : 'Log measurements'}</button>
+  </section>`;
+}
+
+function measuresModal() {
+  const date = modal.date;
+  const cur = state.body.measures[date] || {};
+  const prevDate = Object.keys(state.body.measures).sort().filter((d) => d < date).pop();
+  const prev = prevDate ? state.body.measures[prevDate] : {};
+  const dates = Object.keys(state.body.measures).sort().reverse();
+  return `${modalHead('Body measurements')}
+    <form id="measure-form" class="space-y-3">
+      <label class="block"><span class="label">Date</span><input class="input" type="date" name="date" value="${date}" max="${todayISO()}" data-action="measure-date"></label>
+      <div class="grid grid-cols-2 gap-3">${MEASURES.map(([key, label]) => `<label class="block"><span class="label">${label} (cm)</span>
+        <input class="input" type="number" inputmode="decimal" step="0.1" min="0" name="${key}" value="${cur[key] ?? ''}" placeholder="${prev[key] ? `last ${fmt(prev[key])}` : ''}"></label>`).join('')}</div>
+      <p class="text-xs muted">Measure first thing in the morning, tape snug but not tight, same spot each time. Leave any blank.</p>
+      <button type="submit" class="btn-primary w-full">Save</button>
+    </form>
+    ${dates.length ? `<p class="label mt-5">History</p><ul class="divide-y divide-slate-200 dark:divide-slate-800">${dates.map((d) => `<li class="flex items-center justify-between gap-2 py-1.5 text-sm">
+      <button class="min-w-0 flex-1 text-left" data-action="measure-pick" data-date="${d}"><span class="font-medium">${fmtShort(d)}</span>
+        <span class="block truncate text-xs muted">${MEASURES.filter(([k]) => state.body.measures[d][k]).map(([k, l]) => `${l.split(' ')[0]} ${fmt(state.body.measures[d][k])}`).join(' · ')}</span></button>
+      <button class="icon-btn h-8 w-8" data-action="measure-del" data-date="${d}" aria-label="Delete ${fmtShort(d)} measurements">${ICON_X}</button>
+    </li>`).join('')}</ul>` : ''}`;
+}
+
+// ----- Plate calculator -----
+const PLATE_STYLE = { 25: 'bg-red-600 h-28', 20: 'bg-blue-600 h-28', 15: 'bg-yellow-400 h-24', 10: 'bg-green-600 h-20', 5: 'bg-slate-100 border border-slate-400 h-16', 2.5: 'bg-red-500 h-12', 1.25: 'bg-slate-400 h-10' };
+
+function platesModal() {
+  const bar = modal.bar ?? state.settings.barWeight;
+  return `${modalHead('Plate calculator')}
+    <div class="grid grid-cols-[1fr_7.5rem] gap-3">
+      <label class="block"><span class="label">Total weight (kg)</span>
+        <input class="input text-lg font-semibold" type="number" inputmode="decimal" step="any" min="0" data-pc="total" value="${esc(modal.total ?? '')}" placeholder="e.g. 82.5"></label>
+      <label class="block"><span class="label">Bar</span>
+        <select class="input" data-pc="bar">${[20, 15, 10, 7.5].map((w) => `<option value="${w}" ${bar === w ? 'selected' : ''}>${w} kg</option>`).join('')}</select></label>
+    </div>
+    <div id="pc-result" class="mt-4">${platesResult()}</div>`;
+}
+
+function platesResult() {
+  const total = parseFloat(modal.total), bar = Number(modal.bar ?? state.settings.barWeight);
+  if (!(total > 0)) return '<p class="text-sm muted">Enter the total weight on the bar, including the bar itself.</p>';
+  if (total < bar) return `<p class="text-sm muted">That’s lighter than the ${fmt(bar)} kg bar.</p>`;
+  let side = round2((total - bar) / 2);
+  const used = [];
+  for (const pl of PLATES) while (side >= pl - 0.001) { used.push(pl); side = round2(side - pl); }
+  const loaded = round2(bar + 2 * sum(used));
+  return `<div class="rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
+      <p class="text-sm muted">Each side</p>
+      <p class="text-xl font-bold">${used.length ? used.map(fmt).join(' + ') : 'Nothing: empty bar'}</p>
+      ${side > 0.01 ? `<p class="mt-1 text-sm text-amber-700 dark:text-amber-400">Can’t make exactly ${fmt(total)} kg with standard plates; closest is <b>${fmt(loaded)} kg</b>.</p>` : ''}
+    </div>
+    ${used.length ? `<div class="mt-4 flex items-center" aria-hidden="true">
+      <div class="h-3 w-16 rounded-l bg-slate-400"></div>
+      <div class="h-8 w-2 bg-slate-500"></div>
+      ${used.map((pl) => `<div class="${PLATE_STYLE[pl]} mx-px flex w-5 items-center justify-center rounded-sm"></div>`).join('')}
+      <div class="h-3 w-6 rounded-r bg-slate-400"></div>
+    </div>
+    <p class="mt-1 flex flex-wrap gap-x-3 text-xs muted">${[...new Set(used)].map((pl) => `<span>${fmt(pl)} kg × ${used.filter((x) => x === pl).length}</span>`).join('')}</p>` : ''}`;
 }
 
 /** Single-series line chart (inline SVG) with a tap/hover tooltip. */
@@ -1436,7 +1589,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -3091,7 +3244,9 @@ document.addEventListener('click', (e) => {
       else {
         if (s.weight === '') s.weight = String(p.weight);
         s.reps = String(targetReps(p, ex, si));
-        startRest(ex.rest || 90, ex.name);
+        const nextEx = entry.ss && state.draft.entries[ei + 1] && exById(state.draft.entries[ei + 1].exerciseId);
+        if (nextEx) toast(`Superset: straight on to ${nextEx.name}`); // rest after the last exercise of the superset
+        else startRest(ex.rest || 90, ex.name);
       }
       break;
     }
@@ -3107,6 +3262,23 @@ document.addEventListener('click', (e) => {
     case 'rest-skip': rest = null; tickRest(); return;
     case 'toggle-warmup': entry.showWarmup = !entry.showWarmup; break;
     case 'swap-entry': modal = { type: 'swap', e: ei }; renderModal(); return;
+    case 'toggle-ss': {
+      entry.ss = !entry.ss;
+      const r = routineById(state.draft.routineId);
+      if (r) { // remember the pairing for next time
+        r.links ||= {};
+        if (entry.ss) r.links[entry.exerciseId] = true; else delete r.links[entry.exerciseId];
+      }
+      break;
+    }
+    case 'open-plates': modal = { type: 'plates', total: btn.dataset.total || '' }; renderModal(); return;
+    case 'open-measures': modal = { type: 'measures', date: todayISO() }; renderModal(); return;
+    case 'measure-pick': modal.date = btn.dataset.date; renderModal(); return;
+    case 'measure-del':
+      if (!confirm(`Delete the measurements from ${fmtShort(btn.dataset.date)}?`)) return;
+      delete state.body.measures[btn.dataset.date];
+      saveState(); render();
+      return;
     case 'swap-to': {
       const en = state.draft?.entries[modal.e], ex = exById(id);
       if (!en || !ex) return;
@@ -3240,6 +3412,9 @@ document.addEventListener('input', (e) => {
     saveState();
   } else if (el.dataset.routineField) {
     routineEdit[el.dataset.routineField] = el.value;
+  } else if (el.dataset.pc && modal?.type === 'plates') {
+    modal[el.dataset.pc] = el.dataset.pc === 'bar' ? Number(el.value) : el.value;
+    document.getElementById('pc-result').innerHTML = platesResult();
   } else if (el.dataset.lib) {
     lib[el.dataset.lib] = el.value;
     refreshLibrary();
@@ -3266,6 +3441,7 @@ document.addEventListener('change', (e) => {
     case 'routine-add': if (el.value) routineEdit.exerciseIds.push(el.value); render(); return;
     case 'stats-ex': statsExId = el.value; render(); return;
     case 'bar-weight': state.settings.barWeight = Number(el.value); break;
+    case 'measure-date': modal.date = el.value || todayISO(); renderModal(); return;
     default:
       if (el.name === 'type' || el.name === 'bwMode') syncMachineToggle();
       return;
@@ -3274,6 +3450,17 @@ document.addEventListener('change', (e) => {
 });
 
 document.addEventListener('submit', (e) => {
+  if (e.target.id === 'measure-form') {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const date = String(fd.get('date')) || todayISO();
+    const entry = {};
+    MEASURES.forEach(([k]) => { const v = parseFloat(fd.get(k)); if (v > 0) entry[k] = round1(v); });
+    if (Object.keys(entry).length) state.body.measures[date] = entry; else delete state.body.measures[date];
+    modal = null;
+    saveState(); render(); toast('Measurements saved');
+    return;
+  }
   if (e.target.id !== 'ex-form') return;
   e.preventDefault();
   const form = e.target;
