@@ -119,7 +119,7 @@ def build_cofid():
             ('aoac', lambda h: h.startswith('aoac fibre')),
             ('nsp', lambda h: h.startswith('nsp')),
             ('satfat', lambda h: h.startswith('satd fa') and re.search(r'/\s*100\s*g\s*(fd|food)', h)),
-            ('sodium', lambda h: h.startswith('sodium')),
+            ('sodium', lambda h: h.startswith('sodium') or re.match(r'^na\b', h)),
         ]
         foods = {}
         for ws in wb.worksheets:
@@ -139,6 +139,7 @@ def build_cofid():
                 for i, h in enumerate(header):
                     if field not in ci and match(h):
                         ci[field] = i
+            print(f'sheet {ws.title!r}: matched {sorted(ci)}; headers: {header[:12]}')
             for row in rows:
                 code = row[ci['code']] if ci['code'] < len(row) else None
                 if not code or not re.match(r'^\d', str(code)):
