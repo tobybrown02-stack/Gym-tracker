@@ -58,17 +58,24 @@ Tabs: Workout, Food, Plan, Stats, Exercises, History.
 - Plateau: 3 sessions in a row without progress → offer ~10% deload (more
   assistance for assisted). Logged deloads reset the count.
 
-**12-week programme** (`state.programme`, old ones in `state.pastProgrammes`):
-sits on top of the routines/schedule, which it never changes. Weeks 1–5 Build
-(1–2 reps in reserve), 6 Deload, 7–11 Push (last set near failure), 12 Deload &
-review. In deload weeks `targetFor(ex)` gives last session's load, half the
-sets, bottom of the rep range; those sessions are saved with `h.pdl` and are
-skipped by `predict()` and reset `plateau()`. Draft has `pdl` (toggle "Train
-normally today"). Check-ins: week 0 at setup, then end of weeks 4/8/12
-(weight, waist, feel, note; also written to the weight log/measurements);
-review compares trend weight, waist and e1RM vs the last session before the
-start. Owner (Oct 2026): ~103.9 kg, goal 95 kg, slow cut, 5 days/week, no
-squats or deadlifts.
+**12-week programme** (`state.programme`, old ones in `state.pastProgrammes`;
+the owner's own design): three 4-week blocks, weeks 1–3 build and week 4
+deloads. Block 1 Base 10–15 reps; Block 2 Build 8–12 reps, +1 set on main
+lifts; Block 3 Strength 5–8 reps on main lifts (rest ≥150 s), others 8–12.
+Main lifts = `programme.main` (default: exercises hitting 2+ muscles), editable.
+`progEx(ex, date)` returns the exercise with the block's range/sets/rest; it
+never changes the saved exercise or routines. Use `targetFor(ex)` /
+`entryTarget(entry)` instead of `predict()` in the workout UI. First session
+in a new rep range → `rebase()` picks the weight from est. 1RM (bottom of range
+at ~2 RIR). Deload weeks 4/8/12: ~10% lighter (more assistance), half sets,
+saved as `h.pdl`. Week 12 optional rep-max test on main lifts (`entry.test` →
+`h.test`, one all-out set). `predict()` skips pdl/test sessions and
+`plateau()` resets on them. Draft `pdl` toggle: "Train normally today".
+Check-ins: week 0 at setup, then end of weeks 4/8/12 (weight, waist, feel,
+note; also written to weight log/measurements); review compares trend
+weight, waist and e1RM vs the last session before the start. Owner (Oct 2026):
+~103.9 kg, goal 95 kg, slow cut, 5 days/week up to an hour, no squats or
+deadlifts.
 
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap

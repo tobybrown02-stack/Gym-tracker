@@ -348,7 +348,7 @@ function sessionsFor(exId) {
  * Rule 2: otherwise keep the weight and beat last session's rep total by ≥ 1.
  */
 function predict(ex) {
-  const last = sessionsFor(ex.id).find((h) => !h.pdl); // programme deload weeks don't count
+  const last = sessionsFor(ex.id).find((h) => !h.pdl && !h.test); // programme deload weeks and rep-max tests don't count
   const step = stepFor(ex);
 
   if (!last) {
@@ -401,7 +401,7 @@ function plateau(ex) {
   const ss = sessionsFor(ex.id);
   if (ss.length < 4) return null;
   for (let i = 0; i < 3; i++) {
-    if (ss[i].deload || ss[i].pdl) return null;
+    if (ss[i].deload || ss[i].pdl || ss[i].test) return null;
     const a = evaluate(ex, ss[i].sets), b = evaluate(ex, ss[i + 1].sets);
     if (harder(ex, a.top, b.top) || (a.top === b.top && a.total > b.total)) return null;
   }
@@ -514,9 +514,9 @@ function migrate(d) {
     settings: { barWeight: 20, ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     body: { measures: {}, ...(d.body || {}) },
-    programme: d.programme ? { checkins: [], goalKg: null, ...d.programme } : null,
+    programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
-    draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, showWarmup: false, ...en })) } : null,
+    draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, test: false, showWarmup: false, ...en })) } : null,
   };
 }
 
@@ -584,7 +584,7 @@ function addEntry(exId) {
   state.draft.entries.push({
     exerciseId: exId,
     sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })),
-    note: '', rpe: '', deload: false, showWarmup: false,
+    note: '', rpe: '', deload: false, test: false, showWarmup: false,
   });
 }
 
@@ -651,6 +651,8 @@ const RULE_BADGE = {
   up:    ['Weight up',     'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'],
   reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
   deload: ['Deload week', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
+  block: ['New block', 'bg-violet-500/15 text-violet-700 dark:text-violet-300'],
+  test:  ['Rep-max test', 'bg-rose-500/15 text-rose-700 dark:text-rose-300'],
 };
 
 function badge(rule) {
@@ -835,10 +837,11 @@ function warmupHtml(entry, ex, p, stall) {
 }
 
 function entryCard(entry, i) {
-  const ex = exById(entry.exerciseId);
-  if (!ex) return '';
-  const p = targetFor(ex);
-  const stall = p.rule === 'deload' ? null : plateau(ex);
+  const raw = exById(entry.exerciseId);
+  if (!raw) return '';
+  const ex = progEx(raw);
+  const p = entryTarget(entry);
+  const stall = ['deload', 'test', 'block'].includes(p.rule) ? null : plateau(ex);
   const rpeOptions = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
 
   let stallHtml = '';
@@ -885,6 +888,7 @@ function entryCard(entry, i) {
       ${sparkHtml(ex)}
     </div>
     ${stallHtml}
+    ${canTest(ex) ? `<button class="link mt-3 block" data-action="toggle-test" data-e="${i}">${entry.test ? '↩ Back to deload sets' : '🎯 Test a rep max instead (optional)'}</button>` : ''}
 
     ${isBW(ex) ? '' : `<button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>`}
     <div id="warm-${i}">${warmupHtml(entry, ex, p, stall)}</div>
@@ -927,7 +931,7 @@ function sparkSvg(vals) {
 
 /** Small trend line of the last few sessions: est. 1RM, or best-set reps for bodyweight. */
 function sparkHtml(ex) {
-  const ss = sessionsFor(ex.id).filter((h) => !h.pdl).slice(0, 8).reverse();
+  const ss = sessionsFor(ex.id).filter((h) => !h.pdl && !h.test).slice(0, 8).reverse();
   if (ss.length < 2) return '';
   const bw = isBW(ex);
   const vals = ss.map((h) => (bw ? Math.max(...evaluate(ex, h.sets).reps) : round1(bestE1(h.sets))));
@@ -963,6 +967,7 @@ function progressHtml(entry, ex, p) {
   if (!sets.length) return `<span class="muted">Goal: <b class="text-slate-900 dark:text-slate-100">${p.total}</b> reps</span>`;
   const ev = evaluate(ex, sets);
   if (p.rule === 'deload') return `<span class="muted">@ ${loadLabel(ex, ev.top)}: </span><b class="tabular-nums">${ev.total}</b><span class="muted"> reps · easy</span>`;
+  if (p.rule === 'test') return `<span class="muted">Est. 1RM </span><b class="tabular-nums">${fmt(round1(bestE1(sets)))} kg</b>`;
   if (ev.hitCeiling) {
     return `<span class="font-semibold text-emerald-700 dark:text-emerald-400">Ceiling hit → +${fmt(stepFor(ex))} kg next</span>`;
   }
@@ -973,19 +978,24 @@ function progressHtml(entry, ex, p) {
 }
 
 // ----- 12-week programme -----
-// Runs on top of the routines and weekly schedule: it only decides how hard
-// each week is (build, deload, push) and when to check in.
+// Runs on top of the routines and weekly schedule. Three 4-week blocks: weeks
+// 1–3 of each block build, week 4 is a deload. Each block sets its own rep
+// range (and extra volume) for the exercises; the double-progression engine
+// does the rest.
 const PROG_WEEKS = 12;
-const PROG_CHECKS = [4, 8, 12]; // check-ins at the end of these weeks (plus one at the start)
-const PHASES = {
-  build:  { name: 'Build', block: 'Block 1', weeks: [1, 5], cell: 'bg-indigo-500', tip: 'Leave 1–2 reps in the tank on every working set. Beat last time by a rep or a weight step; the targets do the maths.' },
-  deload: { name: 'Deload', block: 'Recovery', weeks: [6, 6], cell: 'bg-amber-500', tip: 'Same weights as last time, about half the sets, and stop with 3–4 reps left. Fatigue drops and you start the next block fresh. Targets won’t go up this week.' },
-  push:   { name: 'Push', block: 'Block 2', weeks: [7, 11], cell: 'bg-violet-500', tip: 'Take the last set of each exercise to 0–1 reps left, with strict form. Earlier sets: 1–2 reps in the tank.' },
-  final:  { name: 'Deload & review', block: 'Recovery', weeks: [12, 12], cell: 'bg-amber-500', tip: 'Easy week like week 6 (same weights, half the sets, 3–4 reps left), then do your final check-in.' },
+const PROG_CHECKS = [4, 8, 12]; // check-ins at the end of each block (plus one at the start)
+const BLOCKS = {
+  1: { name: 'Base', reps: '10–15 reps', cell: 'bg-indigo-500', dot: 'bg-indigo-500',
+    tip: 'Higher reps (10–15) to build a base. Leave 1–2 reps in the tank and beat last time by a rep or a weight step.' },
+  2: { name: 'Build', reps: '8–12 reps', cell: 'bg-violet-500', dot: 'bg-violet-500',
+    tip: 'Moderate reps (8–12) and one extra set on your main lifts. Leave 1–2 reps in the tank.' },
+  3: { name: 'Strength', reps: '5–8 reps on main lifts', cell: 'bg-emerald-600', dot: 'bg-emerald-600',
+    tip: 'Main lifts go heavy (5–8 reps) with longer rests; other exercises stay at 8–12. Leave 1–2 reps in the tank.' },
 };
+const DELOAD_TIP = 'Deload: about 10% lighter, half the sets, easy effort (stop with 3–4 reps left). Fatigue drops so the next block starts fresh.';
 const FEEL = [['great', 'Strong, recovering well'], ['ok', 'Fine'], ['beaten', 'Run down or achy']];
 
-const phaseKey = (w) => (w <= 5 ? 'build' : w === 6 ? 'deload' : w <= 11 ? 'push' : 'final');
+const blockOf = (w) => Math.ceil(w / 4);
 const progEnd = () => addDays(state.programme.start, PROG_WEEKS * 7 - 1);
 const checkinDate = (w) => addDays(state.programme.start, w * 7 - 1); // Sunday at the end of week w
 const progCheckin = (w) => state.programme?.checkins.find((c) => c.week === w);
@@ -998,20 +1008,82 @@ function progWeek(date) {
   return w <= PROG_WEEKS ? w : null;
 }
 
-const isDeloadWeek = (date) => [6, 12].includes(progWeek(date));
+const isDeloadWeek = (date) => [4, 8, 12].includes(progWeek(date));
+const programmeLifts = () => [...new Set(state.routines.flatMap((r) => r.exerciseIds))].map(exById).filter(Boolean);
+/** Main lifts get the strength rep range and extra volume. Default: compound moves (more than one muscle). */
+const defaultMain = () => programmeLifts().filter((e) => !repsOnly(e) && Object.keys(e.muscles || {}).length >= 2).map((e) => e.id);
+const isMain = (ex) => (state.programme?.main ?? defaultMain()).includes(ex.id);
 
-/** Today's target: the normal progression, or an easy deload-week version of it. */
-function targetFor(ex, deload = !!state.draft?.pdl) {
-  const p = predict(ex);
-  if (!deload) return p;
-  const weight = p.ev ? p.ev.top : p.weight; // last session's working load, no increase
-  const n = Math.max(1, Math.ceil(ex.sets / 2));
-  const reps = Array(n).fill(ex.repMin);
+/** The exercise as the programme wants it on a date: block rep range, sets and rest. */
+function progEx(ex, date = state.draft?.date || todayISO()) {
+  const w = progWeek(date);
+  if (!w || repsOnly(ex)) return ex;
+  const b = blockOf(w), main = isMain(ex);
+  const [repMin, repMax] = b === 1 ? [10, 15] : b === 3 && main ? [5, 8] : [8, 12];
+  return { ...ex, repMin, repMax, sets: ex.sets + (b === 2 && main ? 1 : 0), rest: b === 3 && main ? Math.max(ex.rest || 90, 150) : ex.rest };
+}
+
+/**
+ * First session of a new block (new rep range): pick the weight from the
+ * estimated 1RM so the bottom of the new range is ~2 reps short of failure.
+ */
+function rebase(e, date) {
+  const w = progWeek(date);
+  if (!w || isBW(e)) return null;
+  const last = sessionsFor(e.id).find((h) => !h.pdl); // a rep-max test counts here
+  if (!last) return null;
+  const lastWeek = progWeek(last.date);
+  if (lastWeek && blockOf(lastWeek) === blockOf(w)) return null;
+  const before = progEx(exById(e.id), last.date);
+  if (before.repMin === e.repMin && before.repMax === e.repMax) return null;
+  const e1 = bestE1(last.sets), step = stepFor(e);
+  if (!e1) return null;
+  const raw = e1 / (1 + (e.repMin + 2) / 30);
+  const weight = round2(Math.max(0, step ? Math.floor(raw / step) * step : raw));
+  const reps = Array(e.sets).fill(e.repMin);
   return {
-    rule: 'deload', weight, reps, total: sum(reps), last: p.last,
-    reason: `Deload week: ${n} easy set${n === 1 ? '' : 's'} at last time’s ${loadLabel(ex, weight)}, stopping with 3–4 reps left. Back to beating your numbers next week.`,
+    rule: 'block', weight, reps, total: sum(reps), last,
+    reason: `New block: ${e.repMin}–${e.repMax} reps × ${e.sets} sets. Weight set from your estimated 1RM (${fmt(round1(e1))} kg) so ${e.repMin} reps feels like 2 left in the tank. Build up from here.`,
   };
 }
+
+/** Last real working load (ignores deload weeks and rep-max tests). */
+function lastTop(e) {
+  const last = sessionsFor(e.id).find((h) => !h.pdl && !h.test);
+  return last ? evaluate(e, last.sets).top : null;
+}
+
+/** Today's target: the block's progression, or the deload-week version of it. */
+function targetFor(ex, deload = !!state.draft?.pdl, date = state.draft?.date || todayISO()) {
+  const e = progEx(ex, date);
+  const p = rebase(e, date) || predict(e);
+  if (!deload) return p;
+  const top = lastTop(e) ?? p.weight, step = stepFor(e);
+  let weight = top;
+  if (isAssisted(e)) weight = roundToStep(Math.max(top * 1.1, top + step), e); // a bit more help
+  else if (!isBW(e) || top > 0) {
+    weight = roundToStep(top * 0.9, e);
+    if (weight >= top) weight = round2(Math.max(0, top - step));
+  }
+  const n = Math.max(1, Math.ceil(e.sets / 2));
+  const reps = Array(n).fill(e.repMin);
+  return {
+    rule: 'deload', weight, reps, total: sum(reps), last: p.last,
+    reason: `Deload week: ${n} easy set${n === 1 ? '' : 's'} at ${loadLabel(e, weight)}${weight !== top ? ` (down from ${loadLabel(e, top)})` : ''}, stopping with 3–4 reps left. Back to building next week.`,
+  };
+}
+
+/** Week 12 option: one all-out set at the last working weight to measure progress. */
+function testTarget(ex) {
+  const e = progEx(ex), weight = lastTop(e) ?? predict(e).weight;
+  return {
+    rule: 'test', weight, reps: [e.repMax], total: e.repMax, last: predict(e).last,
+    reason: `Rep-max test: warm up, then one set at ${loadLabel(e, weight)} for as many clean reps as you can. Stop when the next rep would break form. Your estimated 1RM is worked out from it.`,
+  };
+}
+
+const entryTarget = (entry) => (entry.test ? testTarget(exById(entry.exerciseId)) : targetFor(exById(entry.exerciseId)));
+const canTest = (ex) => progWeek(state.draft?.date || todayISO()) === 12 && isMain(ex) && !isBW(ex);
 
 /** The check-in that's due now (latest first), if it hasn't been done. */
 function dueCheckin() {
@@ -1025,8 +1097,6 @@ function trendAt(date, fallback) {
   const pts = weightSeries().filter((x) => x.date <= date);
   return pts.length ? pts[pts.length - 1].trend : fallback;
 }
-
-const programmeLifts = () => [...new Set(state.routines.flatMap((r) => r.exerciseIds))].map(exById).filter(Boolean);
 
 /** Strength change for one exercise: the last session before `from` against the latest by `to`. */
 function liftChange(ex, from, to) {
@@ -1052,14 +1122,23 @@ function strengthChanges(to) {
   return programmeLifts().map((ex) => liftChange(ex, state.programme.start, to)).filter(Boolean);
 }
 
+/** Headline for a programme week, e.g. "Block 2 · Build · week 3 of 4". */
+function weekTitle(w) {
+  const b = blockOf(w), k = w - (b - 1) * 4;
+  return k === 4 ? `Block ${b} · Deload week` : `Block ${b} · ${BLOCKS[b].name} · week ${k} of 4`;
+}
+const weekTip = (w) => (isDeloadWeek(addDays(state.programme.start, (w - 1) * 7))
+  ? DELOAD_TIP + (w === 12 ? ' Optional: test a rep max on your main lifts to see how far you’ve come.' : '')
+  : BLOCKS[blockOf(w)].tip);
+
 /** Small banner on the Workout tab: which week it is and how hard to train. */
 function progBanner(date) {
   const w = progWeek(date);
   if (!w) return '';
-  const k = phaseKey(w), ph = PHASES[k], easy = k === 'deload' || k === 'final';
+  const easy = isDeloadWeek(date);
   return `<button class="mb-4 block w-full rounded-2xl border p-3 text-left ${easy ? 'border-amber-500/40 bg-amber-500/10' : 'border-indigo-500/30 bg-indigo-500/10'}" data-action="nav" data-view="plan">
-    <p class="text-xs font-bold uppercase tracking-wider ${easy ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-600 dark:text-indigo-300'}">Week ${w} of ${PROG_WEEKS} · ${ph.block === 'Recovery' ? ph.name : `${ph.block} · ${ph.name}`}</p>
-    <p class="mt-0.5 text-sm text-slate-700 dark:text-slate-300">${ph.tip}</p>
+    <p class="text-xs font-bold uppercase tracking-wider ${easy ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-600 dark:text-indigo-300'}">Week ${w} of ${PROG_WEEKS} · ${weekTitle(w)}</p>
+    <p class="mt-0.5 text-sm text-slate-700 dark:text-slate-300">${weekTip(w)}</p>
   </button>`;
 }
 
@@ -1068,32 +1147,25 @@ function programmeCard() {
   if (!p) {
     return `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
       <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">12-week programme</p>
-      <h3 class="mt-1 text-lg font-bold">Train in blocks, with planned deloads</h3>
-      <p class="mt-1 text-sm muted">Uses your routines and weekly schedule as they are. Weeks 1–5 build, week 6 is an easy deload, weeks 7–11 push harder, week 12 is a deload and review. Check-ins at the start and after weeks 4, 8 and 12 track weight, waist and strength.</p>
+      <h3 class="mt-1 text-lg font-bold">Three 4-week blocks, each ending in a deload</h3>
+      <p class="mt-1 text-sm muted">Uses your routines and weekly schedule as they are. Block 1 builds a base at 10–15 reps, Block 2 moves to 8–12 with a bit more volume, Block 3 goes for strength at 5–8 reps on main lifts. Week 4 of each block is a deload; week 12 adds optional rep-max tests. Check-ins at the start and after each block.</p>
       <button class="btn-primary mt-3 w-full" data-action="prog-setup">Set up programme</button>
     </section>`;
   }
   const w = progWeek(today), done = today > progEnd();
   const shown = w || (done ? PROG_WEEKS + 1 : 0);
   const cells = Array.from({ length: PROG_WEEKS }, (_, i) => {
-    const n = i + 1, k = phaseKey(n);
+    const n = i + 1, deload = n % 4 === 0;
     return `<div class="relative">
-      <div class="flex h-7 items-center justify-center rounded-md text-[11px] font-bold text-white ${PHASES[k].cell} ${n < shown ? 'opacity-90' : n === shown ? 'ring-2 ring-slate-900 ring-offset-1 ring-offset-white dark:ring-white dark:ring-offset-slate-900' : 'opacity-35'}">${n}</div>
+      <div class="flex h-7 items-center justify-center rounded-md text-[11px] font-bold text-white ${deload ? 'bg-amber-500' : BLOCKS[blockOf(n)].cell} ${n < shown ? 'opacity-90' : n === shown ? 'ring-2 ring-slate-900 ring-offset-1 ring-offset-white dark:ring-white dark:ring-offset-slate-900' : 'opacity-35'}">${n}</div>
       ${PROG_CHECKS.includes(n) ? `<p class="mt-0.5 text-center text-[10px] leading-3 ${progCheckin(n) ? 'text-emerald-600 dark:text-emerald-400' : 'muted'}">${progCheckin(n) ? '✓' : '●'}</p>` : ''}
     </div>`;
   }).join('');
 
   let head;
-  if (w) {
-    const k = phaseKey(w), ph = PHASES[k];
-    const inBlock = ph.weeks[1] > ph.weeks[0] ? ` · week ${w - ph.weeks[0] + 1} of ${ph.weeks[1] - ph.weeks[0] + 1}` : '';
-    head = `<h3 class="mt-1 text-xl font-bold">Week ${w} of ${PROG_WEEKS} · ${ph.name}</h3>
-      <p class="text-sm muted">${ph.block}${inBlock}</p>`;
-  } else if (done) {
-    head = `<h3 class="mt-1 text-xl font-bold">Programme complete 🎉</h3><p class="text-sm muted">${fmtShort(p.start)} – ${fmtShort(progEnd())}</p>`;
-  } else {
-    head = `<h3 class="mt-1 text-xl font-bold">Starts ${fmtDay(p.start)}</h3><p class="text-sm muted">Week 1 is a build week.</p>`;
-  }
+  if (w) head = `<h3 class="mt-1 text-xl font-bold">Week ${w} of ${PROG_WEEKS}</h3><p class="text-sm muted">${weekTitle(w)}${w % 4 ? ` · ${BLOCKS[blockOf(w)].reps}` : ''}</p>`;
+  else if (done) head = `<h3 class="mt-1 text-xl font-bold">Programme complete 🎉</h3><p class="text-sm muted">${fmtShort(p.start)} – ${fmtShort(progEnd())}</p>`;
+  else head = `<h3 class="mt-1 text-xl font-bold">Starts ${fmtDay(p.start)}</h3><p class="text-sm muted">Block 1 · Base · 10–15 reps</p>`;
 
   const ws = weekStart(today);
   const planned = DAYS.filter((_, i) => plannedRoutine(addDays(ws, i))).length;
@@ -1104,6 +1176,7 @@ function programmeCard() {
   const pct = base && goal && base.weight > goal ? Math.max(0, Math.min(100, ((base.weight - nowKg) / (base.weight - goal)) * 100)) : null;
   const due = dueCheckin();
   const next = PROG_CHECKS.find((n) => !progCheckin(n) && checkinDate(n) > today);
+  const mains = programmeLifts().filter(isMain);
 
   return `<section class="card mb-4">
     <div class="flex items-center justify-between gap-2">
@@ -1112,9 +1185,10 @@ function programmeCard() {
     </div>
     ${head}
     <div class="mt-3 grid grid-cols-12 gap-1">${cells}</div>
-    <p class="mt-1 flex flex-wrap gap-x-3 text-[11px] muted"><span><span class="inline-block h-2 w-2 rounded-sm bg-indigo-500"></span> Build</span><span><span class="inline-block h-2 w-2 rounded-sm bg-amber-500"></span> Deload</span><span><span class="inline-block h-2 w-2 rounded-sm bg-violet-500"></span> Push</span><span>● check-in</span></p>
-    ${w ? `<p class="mt-3 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">${PHASES[phaseKey(w)].tip}</p>
+    <p class="mt-1 flex flex-wrap gap-x-3 text-[11px] muted">${[1, 2, 3].map((b) => `<span><span class="inline-block h-2 w-2 rounded-sm ${BLOCKS[b].dot}"></span> ${BLOCKS[b].name}</span>`).join('')}<span><span class="inline-block h-2 w-2 rounded-sm bg-amber-500"></span> Deload</span><span>● check-in</span></p>
+    ${w ? `<p class="mt-3 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">${weekTip(w)}</p>
       <p class="mt-2 text-sm"><span class="muted">This week:</span> <b>${trained}</b><span class="muted"> of ${planned} planned session${planned === 1 ? '' : 's'} done</span></p>` : ''}
+    <button class="mt-2 block w-full text-left text-sm" data-action="prog-main"><span class="muted">Main lifts:</span> ${mains.length ? mains.map((e) => esc(e.name)).join(', ') : '<span class="muted">none</span>'} <span class="link text-xs">Change</span></button>
     ${pct !== null ? `<div class="mt-3">
       <div class="flex justify-between text-xs"><span class="muted">${fmt(base.weight)} kg start</span><b class="tabular-nums">${fmt(round1(nowKg))} kg now</b><span class="muted">goal ${fmt(goal)} kg</span></div>
       <div class="mt-1 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full bg-emerald-500" style="width:${Math.max(1, pct)}%"></div></div>
@@ -1126,12 +1200,26 @@ function programmeCard() {
   </section>`;
 }
 
+/** Tick list of the programme's exercises; ticked ones are main lifts. */
+function mainLiftsHtml(main) {
+  return `<ul class="space-y-1">${programmeLifts().filter((e) => !repsOnly(e)).map((e) => `<li><label class="flex items-center gap-3 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
+    <input type="checkbox" class="h-5 w-5 accent-indigo-600" name="main" value="${e.id}" data-action="prog-main-toggle" ${main.includes(e.id) ? 'checked' : ''}>
+    <span class="min-w-0"><span class="block truncate font-medium">${esc(e.name)}</span><span class="block truncate text-xs muted">${muscleLabel(e) || eqLabel(e)}</span></span>
+  </label></li>`).join('')}</ul>`;
+}
+const MAIN_HELP = 'Main lifts get one extra set in Block 2 and go heavy (5–8 reps, longer rests) in Block 3. Everything else stays at 8–12. Usually your big compound moves.';
+
+function progMainModal() {
+  return `${modalHead('Main lifts')}<p class="-mt-1 mb-3 text-sm muted">${MAIN_HELP}</p>${mainLiftsHtml(state.programme.main ?? defaultMain())}
+    <button class="btn-primary mt-4 w-full" data-action="close-modal">Done</button>`;
+}
+
 function progSetupModal() {
   const ws = weekStart(todayISO());
   const latest = Object.keys(state.food.weights).sort().pop();
   const kg = latest ? state.food.weights[latest] : state.food.profile?.weight ?? '';
   const goal = state.programme?.goalKg ?? state.pastProgrammes[state.pastProgrammes.length - 1]?.goalKg ?? '';
-  const days = DAYS.map((d, i) => [d, plannedRoutine(addDays(ws, 7 + i)) || routineById(state.schedule.weekly[i])]).filter(([, r]) => r);
+  const days = DAYS.map((d, i) => [d, routineById(state.schedule.weekly[i])]).filter(([, r]) => r);
   const waist = measureSeries('waist').pop()?.v ?? '';
   return `${modalHead('12-week programme')}
     <form id="prog-form" class="space-y-3">
@@ -1139,12 +1227,14 @@ function progSetupModal() {
         <p class="font-semibold">Your routines stay as they are</p>
         <p class="mt-1 muted">${days.length ? days.map(([d, r]) => `${d} ${esc(r.name)}`).join(' · ') : 'No weekly schedule yet: set your days in the Plan tab first.'}</p>
         <ul class="mt-2 space-y-0.5">
-          <li><b>Weeks 1–5 · Build:</b> 1–2 reps in the tank</li>
-          <li><b>Week 6 · Deload:</b> same weights, half the sets</li>
-          <li><b>Weeks 7–11 · Push:</b> last set of each exercise near failure</li>
-          <li><b>Week 12 · Deload &amp; review</b></li>
+          <li><b>Weeks 1–3 · Base:</b> 10–15 reps</li>
+          <li><b>Weeks 5–7 · Build:</b> 8–12 reps, +1 set on main lifts</li>
+          <li><b>Weeks 9–11 · Strength:</b> 5–8 reps on main lifts</li>
+          <li><b>Weeks 4, 8, 12 · Deload:</b> ~10% lighter, half the sets, easy</li>
+          <li><b>Week 12:</b> optional rep-max tests</li>
           <li><b>Check-ins:</b> today, then after weeks 4, 8 and 12</li>
         </ul>
+        <p class="mt-2 text-xs muted">At the start of each block the weights reset automatically from your estimated 1RM to suit the new rep range.</p>
       </div>
       <label class="block"><span class="label">Week 1 starts</span>
         <select class="input" name="start">${[0, 1, 2].map((n) => `<option value="${addDays(ws, 7 * n)}">${n === 0 ? 'This week' : n === 1 ? 'Next week' : 'In 2 weeks'} · Mon ${fmtShort(addDays(ws, 7 * n))}</option>`).join('')}</select></label>
@@ -1153,6 +1243,7 @@ function progSetupModal() {
         <label class="block"><span class="label">Goal weight (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="goal" value="${goal}" placeholder="optional"></label>
       </div>
       <label class="block"><span class="label">Waist (cm, optional)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="0" name="waist" value="${waist}" placeholder="round the belly button"></label>
+      <div><p class="label">Main lifts</p><p class="mb-2 text-xs muted">${MAIN_HELP}</p>${mainLiftsHtml(state.programme?.main ?? defaultMain())}</div>
       <p class="text-xs muted">Take front, side and back photos today in the same light. They stay in your Photos app; compare them at each check-in.</p>
       <button type="submit" class="btn-primary w-full">Start programme</button>
     </form>`;
@@ -1227,9 +1318,9 @@ function progReviewModal() {
   else advice.push('Weight loss has stalled. Accept the next weekly calorie check-in on the Food tab, or trim about 150 kcal a day.');
   if (down.length > up.length) advice.push('More lifts went down than up. Prioritise sleep (7–9 hours), keep protein around 2 g per kg, and don’t cut calories any further for now.');
   if (c.feel === 'beaten') advice.push(c.week >= 12 ? 'You said you feel run down: take the deload seriously before starting another block.' : 'You said you feel run down. If that’s still true after the next deload, drop one set from your two or three biggest exercises.');
-  if (c.week === 4) advice.push('Next: finish Block 1 (week 5), then the week 6 deload.');
-  if (c.week === 8) advice.push('Block 2 is about pushing the last set hard. Three weeks to go before the final deload.');
-  if (c.week === 12) advice.push('Programme done! Start another 12 weeks from the Plan tab to keep heading towards your goal.');
+  if (c.week === 4) advice.push('Next: Block 2. 8–12 reps with one extra set on your main lifts. Weights reset automatically for the new range.');
+  if (c.week === 8) advice.push('Next: Block 3. Main lifts go to 5–8 reps with longer rests. Expect the weights to jump up.');
+  if (c.week === 12) advice.push('Programme done! If you did rep-max tests this week they’re in the strength list above. Start another 12 weeks from the Plan tab to keep heading towards your goal.');
   html += `<div class="mt-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3"><p class="font-semibold">What to do next</p>
     <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">${advice.map((a) => `<li>${a}</li>`).join('')}</ul></div>
     ${c.note ? `<p class="mt-3 text-sm muted">Your note: “${esc(c.note)}”</p>` : ''}
@@ -1833,6 +1924,7 @@ function historyView() {
                 ${prs.length ? `<p class="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">🏆 ${prs.join(' · ')}</p>` : ''}
               </div>
               <div class="flex shrink-0 items-center gap-1">
+                ${h.test ? '<span class="badge bg-rose-500/15 text-rose-700 dark:text-rose-300">Test</span>' : ''}
                 ${h.deload || h.pdl ? `<span class="badge bg-amber-500/15 text-amber-700 dark:text-amber-300">${h.pdl ? 'Deload wk' : 'Deload'}</span>` : ''}
                 ${ev ? (ev.hitCeiling ? `<span class="badge bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Ceiling hit</span>` : `<span class="badge bg-slate-500/10 text-slate-600 dark:text-slate-300">${ev.total} reps</span>`) : ''}
                 <button class="icon-btn h-9 w-9" data-action="delete-session" data-id="${h.id}" aria-label="Delete session">
@@ -1866,7 +1958,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -3319,13 +3411,14 @@ function finishWorkout() {
   d.entries.forEach((entry, k) => {
     const ex = exById(entry.exerciseId);
     if (!ex) return;
-    const sets = cleanSets(entry.sets, targetFor(ex).weight);
+    const sets = cleanSets(entry.sets, entryTarget(entry).weight);
     if (!sets.length) return;
     const h = { id: uid(), exerciseId: ex.id, date: d.date || todayISO(), ts: ts + k, sets };
     if (entry.note.trim()) h.note = entry.note.trim();
     if (entry.rpe) h.rpe = entry.rpe;
     if (entry.deload) h.deload = true;
-    if (d.pdl) h.pdl = true;
+    if (entry.test) h.test = true;
+    else if (d.pdl) h.pdl = true;
     state.history.push(h);
     saved.push(h);
   });
@@ -3336,9 +3429,9 @@ function finishWorkout() {
     const ex = exById(h.exerciseId);
     const items = prsFor(h);
     if (items.length) prs.push({ name: ex.name, items });
-    const p = predict(ex);
+    const p = targetFor(ex, false, h.date);
     if (p.rule === 'up') ups.push({ name: ex.name, label: loadLabel(ex, p.weight) });
-    if (plateau(ex)) stalls.push(ex.name);
+    if (!h.pdl && !h.test && plateau(progEx(ex, h.date))) stalls.push(ex.name);
   });
   state.draft = null;
   rest = null;
@@ -3524,12 +3617,12 @@ document.addEventListener('click', (e) => {
       state.draft.entries.splice(ei, 1); break;
     case 'add-set': {
       const lastSet = entry.sets[entry.sets.length - 1];
-      entry.sets.push({ weight: lastSet ? lastSet.weight : String(targetFor(exById(entry.exerciseId)).weight), reps: '' });
+      entry.sets.push({ weight: lastSet ? lastSet.weight : String(entryTarget(entry).weight), reps: '' });
       break;
     }
     case 'remove-set': entry.sets.splice(si, 1); break;
     case 'fill-set': {
-      const ex = exById(entry.exerciseId), p = targetFor(ex), s = entry.sets[si];
+      const ex = progEx(exById(entry.exerciseId)), p = entryTarget(entry), s = entry.sets[si];
       if (parseInt(s.reps, 10) > 0) s.reps = ''; // tap again to un-mark
       else {
         if (s.weight === '') s.weight = String(p.weight);
@@ -3540,7 +3633,7 @@ document.addEventListener('click', (e) => {
       }
       break;
     }
-    case 'rest-start': { const ex = exById(entry.exerciseId); startRest(ex.rest || 90, ex.name); return; }
+    case 'rest-start': { const ex = progEx(exById(entry.exerciseId)); startRest(ex.rest || 90, ex.name); return; }
     case 'rest-adjust':
       if (rest) {
         rest.end = Math.max(Date.now(), rest.end + Number(btn.dataset.sec) * 1000);
@@ -3574,7 +3667,7 @@ document.addEventListener('click', (e) => {
       if (!en || !ex) return;
       if (en.sets.some((x) => x.reps !== '') && !confirm('Swap this exercise? The sets you’ve logged for it will be cleared.')) return;
       const p = targetFor(ex);
-      Object.assign(en, { exerciseId: id, sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })), note: '', rpe: '', deload: false });
+      Object.assign(en, { exerciseId: id, sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })), note: '', rpe: '', deload: false, test: false });
       modal = null;
       toast(`Swapped to ${ex.name}`);
       break;
@@ -3592,11 +3685,19 @@ document.addEventListener('click', (e) => {
       entry.sets.forEach((s) => (s.weight = String(p.weight)));
       break;
     }
+    case 'toggle-test': {
+      if (entry.sets.some((x) => x.reps !== '') && !confirm('Clear the sets you’ve logged for this exercise?')) return;
+      entry.test = !entry.test;
+      const p = entryTarget(entry);
+      entry.sets = p.reps.map(() => ({ weight: String(p.weight), reps: '' }));
+      break;
+    }
+    case 'prog-main': modal = { type: 'prog-main' }; renderModal(); return;
     case 'toggle-pdl': {
       const d = state.draft;
       d.pdl = !d.pdl;
       d.entries.forEach((en) => { // re-fill exercises that haven't been started yet
-        if (en.sets.some((x) => x.reps !== '')) return;
+        if (en.sets.some((x) => x.reps !== '') || en.test) return;
         const p = targetFor(exById(en.exerciseId));
         en.sets = p.reps.map(() => ({ weight: String(p.weight), reps: '' }));
       });
@@ -3714,9 +3815,9 @@ document.addEventListener('input', (e) => {
     const entry = state.draft.entries[ei];
     entry.sets[si][el.dataset.field] = el.value;
     saveState();
-    const ex = exById(entry.exerciseId);
+    const ex = progEx(exById(entry.exerciseId));
     document.getElementById(`row-${ei}-${si}`).classList.toggle('done', parseInt(entry.sets[si].reps, 10) > 0);
-    const p = targetFor(ex);
+    const p = entryTarget(entry);
     document.getElementById(`progress-${ei}`).innerHTML = progressHtml(entry, ex, p);
     if (el.dataset.field === 'weight') document.getElementById(`warm-${ei}`).innerHTML = warmupHtml(entry, ex, p, plateau(ex));
   } else if (el.dataset.entryField) {
@@ -3754,6 +3855,14 @@ document.addEventListener('change', (e) => {
     case 'stats-ex': statsExId = el.value; render(); return;
     case 'bar-weight': state.settings.barWeight = Number(el.value); break;
     case 'measure-date': modal.date = el.value || todayISO(); renderModal(); return;
+    case 'prog-main-toggle': {
+      if (modal?.type !== 'prog-main') return; // the setup form reads its ticks on submit
+      const main = new Set(state.programme.main ?? defaultMain());
+      if (el.checked) main.add(el.value); else main.delete(el.value);
+      state.programme.main = [...main];
+      saveState(); render();
+      return;
+    }
     default:
       if (el.name === 'type' || el.name === 'bwMode') syncMachineToggle();
       return;
@@ -3778,7 +3887,7 @@ document.addEventListener('submit', (e) => {
     const c = { date: today, weight: kg, trend: trendAt(today, kg), waist };
     if (e.target.id === 'prog-form') {
       if (state.programme) state.pastProgrammes.push({ ...state.programme, ended: today });
-      state.programme = { id: uid(), start: String(fd.get('start')), goalKg: num('goal'), checkins: [{ week: 0, ...c }] };
+      state.programme = { id: uid(), start: String(fd.get('start')), goalKg: num('goal'), main: fd.getAll('main').map(String), checkins: [{ week: 0, ...c }] };
       if (state.draft) state.draft.pdl = isDeloadWeek(state.draft.date);
       modal = null;
       toast('Programme started');
