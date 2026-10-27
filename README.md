@@ -14,6 +14,10 @@ and isn't subject to Safari clearing site data after 7 days without a visit.
 - **Workout** — today's scheduled routine with auto-calculated targets, set
   logging, a rest timer (starts when you tick a set, vibrates/beeps when done),
   warm-up sets and a barbell plate calculator, plus RPE and notes per exercise.
+- **Bodyweight exercises** — add weight (belt/vest), reps only, or assisted
+  machines where less assistance is progress. Swap an exercise mid-workout,
+  see a mini progress chart on each card, and get a workout duration and
+  summary when you finish.
 - **Food** — daily food log by meal with calorie and macro targets worked out
   from your details, UK label nutrients (fibre, sugars, saturates, salt),
   built-in UK basics, UK shop and brand search and barcode scanning via

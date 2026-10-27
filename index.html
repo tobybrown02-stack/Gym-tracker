@@ -210,15 +210,25 @@ Leg Press Calf Raise|m|12-15|60|Calves||
 Cable Crunch|m|10-15|25|Core||
 Ab Crunch Machine|m|10-15|25|Core||
 Cable Woodchopper|m|12-15|10|Core||
+Pull-up|w|5-10|0|Back|Biceps|120
+Chin-up|w|5-10|0|Back,Biceps||120
+Dips|w|6-12|0|Chest,Triceps|Shoulders|120
+Back Extension|w|10-15|0|Hamstrings,Glutes|Back|
+Push-up|r|10-20|0|Chest|Triceps,Shoulders|
+Inverted Row|r|8-15|0|Back|Biceps|
+Hanging Leg Raise|r|8-15|0|Core||
+Assisted Pull-up Machine|a|8-12|30|Back|Biceps|
+Assisted Dip Machine|a|8-12|30|Chest,Triceps||
 `.trim().split('\n').map((line) => {
   const [name, t, range, start, primary, secondary, restSecs] = line.split('|');
   const [repMin, repMax] = range.split('-').map(Number);
   const muscles = {};
   secondary.split(',').filter(Boolean).forEach((m) => (muscles[m] = 0.5));
   primary.split(',').filter(Boolean).forEach((m) => (muscles[m] = 1));
-  const type = { d: 'dumbbell', m: 'machine', b: 'barbell' }[t];
+  const type = { d: 'dumbbell', m: 'machine', b: 'barbell' }[t] || 'bodyweight';
+  const bwMode = { w: 'weighted', r: 'reps', a: 'assisted' }[t] || 'weighted';
   const rest = Number(restSecs) || (repMax <= 8 ? 150 : repMin >= 12 ? 60 : 90);
-  return { name, type, repMin, repMax, sets: 3, startWeight: Number(start), muscles, rest };
+  return { name, type, bwMode, repMin, repMax, sets: 3, startWeight: Number(start), muscles, rest };
 });
 
 // ---------- Small helpers -------------------------------------------------
@@ -252,23 +262,43 @@ function toast(msg) {
 
 // ---------- Equipment & rounding ----------------------------------------
 
+// Bodyweight exercises come in three kinds: extra weight added (belt/vest),
+// reps only, or an assisted machine where *less* assistance is progress.
+const isBW = (ex) => ex.type === 'bodyweight';
+const isAssisted = (ex) => isBW(ex) && ex.bwMode === 'assisted';
+const repsOnly = (ex) => isBW(ex) && ex.bwMode === 'reps';
+/** Is load a harder than load b? */
+const harder = (ex, a, b) => (isAssisted(ex) ? a < b : a > b);
+
 /** Smallest realistic load jump for this exercise's equipment. */
 function stepFor(ex) {
   if (ex.type === 'dumbbell') return 2;
-  if (ex.type === 'machine') return ex.machineStep === 3 ? 3 : 4;
-  return 2.5; // barbell / plates
+  if (ex.type === 'machine' || isAssisted(ex)) return ex.machineStep === 3 ? 3 : 4;
+  if (repsOnly(ex)) return 0;
+  return 2.5; // barbell / plates, or weight added to a bodyweight exercise
 }
 
 /** Round a weight to the nearest equipment step (never negative). */
 function roundToStep(weight, ex) {
   const step = stepFor(ex);
-  return round2(Math.max(0, Math.round(weight / step) * step));
+  return step ? round2(Math.max(0, Math.round(weight / step) * step)) : round2(Math.max(0, weight));
 }
 
 function eqLabel(ex) {
   if (ex.type === 'machine') return `Machine · ${stepFor(ex)}kg steps`;
   if (ex.type === 'dumbbell') return 'Dumbbell · 2kg steps';
+  if (isAssisted(ex)) return `Assisted machine · ${stepFor(ex)}kg steps`;
+  if (repsOnly(ex)) return 'Bodyweight · reps';
+  if (isBW(ex)) return 'Bodyweight · add 2.5kg steps';
   return 'Barbell · 2.5kg steps';
+}
+
+/** How to show a load: "60 kg", "Bodyweight", "BW + 5 kg" or "25 kg assist". */
+function loadLabel(ex, w) {
+  if (repsOnly(ex)) return 'Bodyweight';
+  if (isAssisted(ex)) return w > 0 ? `${fmt(w)} kg assist` : 'No assistance';
+  if (isBW(ex)) return w > 0 ? `BW + ${fmt(w)} kg` : 'Bodyweight';
+  return `${fmt(w)} kg`;
 }
 
 function muscleLabel(ex) {
@@ -294,7 +324,8 @@ function cleanSets(sets, fallbackWeight = NaN) {
  * (lighter sets are treated as warm-ups).
  */
 function evaluate(ex, sets) {
-  const top = Math.max(...sets.map((s) => s.weight));
+  const loads = sets.map((s) => s.weight);
+  const top = isAssisted(ex) ? Math.min(...loads) : Math.max(...loads); // hardest load
   const working = sets.filter((s) => s.weight === top);
   const reps = working.map((s) => s.reps);
   const total = sum(reps);
@@ -330,11 +361,13 @@ function predict(ex) {
 
   const ev = evaluate(ex, last.sets);
 
-  if (ev.hitCeiling) {
+  const canStepUp = !repsOnly(ex) && !(isAssisted(ex) && ev.top <= 0);
+  if (ev.hitCeiling && canStepUp) {
     const reps = Array(ex.sets).fill(ex.repMin);
+    const weight = isAssisted(ex) ? round2(Math.max(0, roundToStep(ev.top, ex) - step)) : round2(roundToStep(ev.top, ex) + step);
     return {
-      rule: 'up', weight: round2(roundToStep(ev.top, ex) + step), reps, total: sum(reps), last, ev,
-      reason: `You hit ${ex.repMax} reps on all ${ev.working.length} working sets at ${fmt(ev.top)} kg. Weight +${fmt(step)} kg, reps reset to ${ex.repMin}.`,
+      rule: 'up', weight, reps, total: sum(reps), last, ev,
+      reason: `You hit ${ex.repMax} reps on all ${ev.working.length} working sets at ${loadLabel(ex, ev.top)}. ${isAssisted(ex) ? `Assistance −${fmt(step)} kg` : `Weight +${fmt(step)} kg`}, reps reset to ${ex.repMin}.`,
     };
   }
 
@@ -350,8 +383,10 @@ function predict(ex) {
   }
   const total = Math.max(sum(reps), ev.total + 1);
 
-  let reason = `Not every set reached ${ex.repMax}. Keep ${fmt(ev.top)} kg and beat last session's ${ev.total} total reps (aim for ${total}+).`;
-  if (!ev.enoughSets) reason += ` Complete all ${ex.sets} working sets to unlock a weight increase.`;
+  let reason = `Not every set reached ${ex.repMax}. Keep ${loadLabel(ex, ev.top)} and beat last session's ${ev.total} total reps (aim for ${total}+).`;
+  if (ev.hitCeiling && repsOnly(ex)) reason = `You hit the top of the range on every set. Keep adding reps (aim for ${total}+), or move to a harder variation.`;
+  else if (ev.hitCeiling) reason = `You’re doing it with no assistance. Keep adding reps (aim for ${total}+), or switch this exercise to “Add weight”.`;
+  else if (!ev.enoughSets && !repsOnly(ex)) reason += ` Complete all ${ex.sets} working sets to unlock ${isAssisted(ex) ? 'less assistance' : 'a weight increase'}.`;
   const belowRange = ev.reps.every((r) => r < ex.repMin);
 
   return { rule: 'reps', weight: ev.top, reps, total, last, ev, reason, belowRange };
@@ -368,9 +403,11 @@ function plateau(ex) {
   for (let i = 0; i < 3; i++) {
     if (ss[i].deload) return null;
     const a = evaluate(ex, ss[i].sets), b = evaluate(ex, ss[i + 1].sets);
-    if (a.top > b.top || (a.top === b.top && a.total > b.total)) return null;
+    if (harder(ex, a.top, b.top) || (a.top === b.top && a.total > b.total)) return null;
   }
   const at = evaluate(ex, ss[0].sets).top;
+  if (repsOnly(ex) || (isBW(ex) && !isAssisted(ex) && at <= 0)) return null; // nothing to take off
+  if (isAssisted(ex)) return { at, weight: roundToStep(Math.max(at * 1.1, at + stepFor(ex)), ex) }; // a bit more help
   let weight = roundToStep(at * 0.9, ex);
   if (weight >= at) weight = round2(Math.max(0, at - stepFor(ex)));
   return { at, weight };
@@ -389,6 +426,18 @@ function prsFor(h) {
   const earlier = state.history.filter((x) => x.exerciseId === h.exerciseId && x.id !== h.id &&
     (x.date < h.date || (x.date === h.date && x.ts < h.ts)));
   if (!earlier.length) return [];
+  const ex = exById(h.exerciseId);
+  if (ex && isBW(ex)) {
+    // Bodyweight: most reps at this load or harder, and the hardest load so far.
+    const top = evaluate(ex, h.sets).top;
+    const best = Math.max(...h.sets.filter((s) => s.weight === top).map((s) => s.reps));
+    const prevSets = earlier.flatMap((x) => x.sets);
+    const comparable = prevSets.filter((s) => !harder(ex, top, s.weight)); // earlier sets at this load or harder
+    const out = [];
+    if (!repsOnly(ex) && !comparable.length) out.push(isAssisted(ex) ? `Least assistance: ${fmt(top)} kg` : `Most added: ${fmt(top)} kg`);
+    else if (best > Math.max(...comparable.map((s) => s.reps))) out.push(`Most reps: ${best}`);
+    return out;
+  }
   const prevE1 = Math.max(...earlier.map((x) => bestE1(x.sets)));
   const prevW = Math.max(...earlier.map((x) => topWeight(x.sets)));
   const out = [];
@@ -415,7 +464,7 @@ function platesFor(total) {
 /** Ramp-up sets before the working weight. */
 function warmupsFor(ex, work) {
   const out = [];
-  if (!(work > 0)) return out;
+  if (!(work > 0) || isBW(ex)) return out;
   const bar = state.settings.barWeight;
   if (ex.type === 'barbell' && work > bar) out.push({ weight: bar, reps: 10 });
   for (const [pct, reps] of [[0.5, 8], [0.7, 5], [0.85, 3]]) {
@@ -455,7 +504,7 @@ const emptyFood = () => ({
 /** Accepts saved data from any version of the app and fills in new fields. */
 function migrate(d) {
   return {
-    exercises: (d.exercises || []).map((e) => ({ muscles: {}, rest: 90, machineStep: 4, ...e })),
+    exercises: (d.exercises || []).map((e) => ({ muscles: {}, rest: 90, machineStep: 4, bwMode: 'weighted', ...e })),
     history: d.history || [],
     routines: d.routines || [],
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
@@ -518,7 +567,7 @@ function dayStatus(date) {
 
 // ---------- Draft workout ------------------------------------------------
 function ensureDraft() {
-  if (!state.draft) state.draft = { date: todayISO(), routineId: null, entries: [] };
+  if (!state.draft) state.draft = { date: todayISO(), routineId: null, entries: [], startedAt: Date.now() };
   return state.draft;
 }
 
@@ -536,7 +585,7 @@ function addEntry(exId) {
 function startRoutine(id, date = todayISO()) {
   const r = routineById(id);
   if (!r) return;
-  state.draft = { date, routineId: id, entries: [] };
+  state.draft = { date, routineId: id, entries: [], startedAt: Date.now() };
   r.exerciseIds.forEach(addEntry);
   view = 'today';
 }
@@ -673,7 +722,7 @@ function todayView() {
             const p = predict(ex);
             return `<li class="flex items-center justify-between gap-3 py-2">
               <span class="min-w-0 truncate font-medium">${esc(ex.name)}</span>
-              <span class="shrink-0 text-right font-bold tabular-nums">${fmt(p.weight)} kg <span class="font-medium muted">× ${p.reps.join('/')}</span></span>
+              <span class="shrink-0 text-right font-bold tabular-nums">${loadLabel(ex, p.weight)} <span class="font-medium muted">× ${p.reps.join('/')}</span></span>
             </li>`;
           }).join('')}
         </ul>
@@ -696,7 +745,7 @@ function todayView() {
     html += `<section class="mb-4 flex items-end justify-between gap-3">
       <div class="min-w-0">
         <h2 class="truncate text-2xl font-bold">${r ? esc(r.name) : 'Today’s workout'}</h2>
-        <p class="text-sm muted">Targets are calculated from your last session.</p>
+        <p class="text-sm muted">Targets come from your last session${d.startedAt ? ` · <span id="workout-clock" class="font-semibold">${clockText(d)}</span>` : ''}</p>
       </div>
       <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
     </section>`;
@@ -721,7 +770,7 @@ function todayView() {
               <span class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps</span>
             </span>
             <span class="shrink-0 text-right">
-              <span class="block font-bold tabular-nums">${fmt(p.weight)} kg</span>
+              <span class="block font-bold tabular-nums">${loadLabel(ex, p.weight)}</span>
               <span class="text-xs tabular-nums muted">${p.reps.join(' / ')}</span>
             </span>
           </button>`;
@@ -739,9 +788,16 @@ function todayView() {
   return html;
 }
 
-function lastLine(p) {
+function setText(ex, s) {
+  if (ex && repsOnly(ex)) return `${s.reps}`;
+  if (ex && isBW(ex) && !isAssisted(ex)) return s.weight > 0 ? `+${fmt(s.weight)}×${s.reps}` : `BW×${s.reps}`;
+  return `${fmt(s.weight)}×${s.reps}`;
+}
+const setsText = (ex, sets, sep = ', ') => sets.map((s) => setText(ex, s)).join(sep);
+
+function lastLine(p, ex) {
   if (!p.last) return '';
-  const sets = p.last.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(', ');
+  const sets = setsText(ex, p.last.sets);
   const extra = [p.last.rpe ? `RPE ${p.last.rpe}` : '', p.last.note ? `“${esc(p.last.note)}”` : ''].filter(Boolean).join(' · ');
   return `<p class="mt-2 text-xs muted">Last (${fmtShort(p.last.date)}): ${sets}${extra ? `<br>${extra}` : ''}</p>`;
 }
@@ -758,7 +814,7 @@ function warmupHtml(entry, ex, p, stall) {
   return `<div class="mt-2 space-y-1 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
       ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
         : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
-      <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${fmt(workWeight)} kg</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
+      <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${loadLabel(ex, workWeight)}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
       ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar.</p>` : ''}
     </div>`;
 }
@@ -773,13 +829,13 @@ function entryCard(entry, i) {
   let stallHtml = '';
   if (stall && !entry.deload) {
     stallHtml = `<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-      <p class="font-semibold text-amber-800 dark:text-amber-300">⚠ Plateau: no progress for 3 sessions at ${fmt(stall.at)} kg</p>
-      <p class="mt-0.5 text-slate-700 dark:text-slate-300">A ~10% deload to <b>${fmt(stall.weight)} kg</b> lets you build momentum and push past it.</p>
+      <p class="font-semibold text-amber-800 dark:text-amber-300">⚠ Plateau: no progress for 3 sessions at ${loadLabel(ex, stall.at)}</p>
+      <p class="mt-0.5 text-slate-700 dark:text-slate-300">${isAssisted(ex) ? 'A little more assistance' : 'A ~10% deload'} (<b>${loadLabel(ex, stall.weight)}</b>) lets you build momentum and push past it.</p>
       <button class="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white" data-action="apply-deload" data-e="${i}">Apply deload</button>
     </div>`;
   } else if (entry.deload && stall) {
     stallHtml = `<div class="mt-3 flex items-center justify-between gap-2 rounded-xl bg-amber-500/10 p-3 text-sm">
-      <span class="text-amber-800 dark:text-amber-300">Deload applied: ${fmt(stall.weight)} kg. Build back up from here.</span>
+      <span class="text-amber-800 dark:text-amber-300">Deload applied: ${loadLabel(ex, stall.weight)}. Build back up from here.</span>
       <button class="link shrink-0" data-action="undo-deload" data-e="${i}">Undo</button>
     </div>`;
   }
@@ -790,7 +846,12 @@ function entryCard(entry, i) {
         <h3 class="truncate text-lg font-bold">${esc(ex.name)}</h3>
         <p class="text-xs muted">${eqLabel(ex)} · ${ex.repMin}–${ex.repMax} reps · ${ex.sets} sets</p>
       </div>
-      <button class="icon-btn -mr-2 -mt-1" data-action="remove-entry" data-e="${i}" aria-label="Remove exercise">${ICON_X}</button>
+      <div class="-mr-2 -mt-1 flex">
+        <button class="icon-btn" data-action="swap-entry" data-e="${i}" aria-label="Swap for another exercise">
+          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></svg>
+        </button>
+        <button class="icon-btn" data-action="remove-entry" data-e="${i}" aria-label="Remove exercise">${ICON_X}</button>
+      </div>
     </div>
 
     <div class="mt-3 rounded-xl bg-indigo-500/10 p-3">
@@ -798,18 +859,19 @@ function entryCard(entry, i) {
         <span class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Target today</span>
         ${badge(p.rule)}
       </div>
-      <p class="mt-1 text-3xl font-extrabold tabular-nums">${fmt(p.weight)} kg <span class="text-xl font-bold text-slate-500 dark:text-slate-400">× ${p.reps.join(' / ')}</span></p>
+      <p class="mt-1 text-3xl font-extrabold tabular-nums">${loadLabel(ex, p.weight)} <span class="text-xl font-bold text-slate-500 dark:text-slate-400">× ${p.reps.join(' / ')}</span></p>
       <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">${p.reason}</p>
       ${p.belowRange ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">All sets were below ${ex.repMin} reps — consider dropping ${fmt(stepFor(ex))} kg if this repeats.</p>` : ''}
-      ${lastLine(p)}
+      ${lastLine(p, ex)}
+      ${sparkHtml(ex)}
     </div>
     ${stallHtml}
 
-    <button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>
+    ${isBW(ex) ? '' : `<button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>`}
     <div id="warm-${i}">${warmupHtml(entry, ex, p, stall)}</div>
 
     <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
-      <span class="text-center">Set</span><span class="text-center">kg</span><span class="text-center">Reps</span><span></span><span></span>
+      <span class="text-center">Set</span><span class="text-center">${repsOnly(ex) ? '' : isAssisted(ex) ? 'Assist kg' : isBW(ex) ? '+ kg' : 'kg'}</span><span class="text-center">Reps</span><span></span><span></span>
     </div>
     <div class="mt-1 space-y-1">
       ${entry.sets.map((s, j) => setRow(i, j, s, p, ex)).join('')}
@@ -832,6 +894,25 @@ function entryCard(entry, i) {
   </article>`;
 }
 
+/** Small trend line of the last few sessions: est. 1RM, or best-set reps for bodyweight. */
+function sparkHtml(ex) {
+  const ss = sessionsFor(ex.id).slice(0, 8).reverse();
+  if (ss.length < 2) return '';
+  const bw = isBW(ex);
+  const vals = ss.map((h) => (bw ? Math.max(...evaluate(ex, h.sets).reps) : round1(bestE1(h.sets))));
+  const lo = Math.min(...vals), hi = Math.max(...vals), W = 84, H = 24;
+  const pts = vals.map((v, k) => [round2((k / (vals.length - 1)) * (W - 4) + 2), round2(hi === lo ? H / 2 : H - 3 - ((v - lo) / (hi - lo)) * (H - 6))]);
+  const [lx, ly] = pts[pts.length - 1];
+  const strong = (t) => `<b class="text-slate-700 dark:text-slate-200">${t}</b>`;
+  return `<div class="mt-2 flex items-center gap-2 text-xs muted">
+    <svg viewBox="0 0 ${W} ${H}" class="h-6 w-20 shrink-0 overflow-visible" aria-hidden="true">
+      <polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lx}" cy="${ly}" r="2.5" fill="#6366f1"/>
+    </svg>
+    <span>${bw ? `Best set: ${vals[0]} → ${strong(`${vals[vals.length - 1]} reps`)}` : `Est. 1RM: ${fmt(vals[0])} → ${strong(`${fmt(vals[vals.length - 1])} kg`)}`} · last ${vals.length} sessions</span>
+  </div>`;
+}
+
 function targetReps(p, ex, j) {
   return p.reps[j] ?? p.reps[p.reps.length - 1] ?? ex.repMin;
 }
@@ -840,8 +921,9 @@ function setRow(i, j, s, p, ex) {
   const done = parseInt(s.reps, 10) > 0;
   return `<div class="set-row ${done ? 'done' : ''}" id="row-${i}-${j}">
     <span class="text-center font-bold muted">${j + 1}</span>
-    <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="decimal" step="any" min="0"
-      data-field="weight" data-e="${i}" data-s="${j}" value="${esc(s.weight)}" placeholder="${fmt(p.weight)}" aria-label="Set ${j + 1} weight">
+    ${repsOnly(ex) ? '<span class="input text-center text-sm font-semibold muted" aria-label="Bodyweight">BW</span>'
+      : `<input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="decimal" step="any" min="0"
+      data-field="weight" data-e="${i}" data-s="${j}" value="${esc(s.weight)}" placeholder="${fmt(p.weight)}" aria-label="Set ${j + 1} ${isAssisted(ex) ? 'assistance' : 'weight'}">`}
     <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="numeric" step="1" min="0"
       data-field="reps" data-e="${i}" data-s="${j}" value="${esc(s.reps)}" placeholder="${targetReps(p, ex, j)}" aria-label="Set ${j + 1} reps">
     <button class="check" data-action="fill-set" data-e="${i}" data-s="${j}" aria-label="Mark set ${j + 1} done">✓</button>
@@ -861,7 +943,7 @@ function progressHtml(entry, ex, p) {
   const sameWeight = ev.top === p.weight;
   const beat = sameWeight && ev.total >= p.total;
   const colour = beat ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100';
-  return `<span class="muted">@ ${fmt(ev.top)} kg: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total} reps</span>` : '<span class="muted"> reps</span>'}`;
+  return `<span class="muted">@ ${loadLabel(ex, ev.top)}: </span><b class="tabular-nums ${colour}">${ev.total}</b>${sameWeight ? `<span class="muted"> / ${p.total} reps</span>` : '<span class="muted"> reps</span>'}`;
 }
 
 // ----- Plan tab -----
@@ -955,9 +1037,11 @@ function routineEditor() {
 }
 
 // ----- Stats tab -----
+const kgLifted = (h) => (isBW(exById(h.exerciseId) || {}) ? 0 : tonnage(h.sets)); // bodyweight/assist kg isn't load moved
+
 function weekVolume(start) {
   const end = addDays(start, 6);
-  return sum(state.history.filter((h) => h.date >= start && h.date <= end).map((h) => tonnage(h.sets)));
+  return sum(state.history.filter((h) => h.date >= start && h.date <= end).map(kgLifted));
 }
 
 function muscleVolume(start) {
@@ -968,7 +1052,7 @@ function muscleVolume(start) {
     const ex = exById(h.exerciseId);
     if (!ex) return;
     const ev = evaluate(ex, h.sets);
-    const n = ev.working.length, kg = tonnage(ev.working);
+    const n = ev.working.length, kg = isBW(ex) ? 0 : tonnage(ev.working);
     const ms = Object.entries(ex.muscles || {});
     if (!ms.length) { untagged += n; return; }
     ms.forEach(([m, f]) => { if (out[m]) { out[m].sets += n * f; out[m].kg += kg * f; } });
@@ -1061,22 +1145,30 @@ function statsView() {
   const ex = exById(statsExId);
   if (ex) {
     const ss = sessionsFor(ex.id).slice().reverse();
-    const pts = ss.map((h) => ({ date: h.date, v: Math.round(bestE1(h.sets) * 10) / 10, top: evaluate(ex, h.sets) }));
+    const bw = isBW(ex);
+    const pts = ss.map((h) => {
+      const ev = evaluate(ex, h.sets);
+      return { date: h.date, v: bw ? Math.max(...ev.reps) : Math.round(bestE1(h.sets) * 10) / 10, top: ev };
+    });
     const first = pts[0].v, lastV = pts[pts.length - 1].v;
     const change = first ? ((lastV - first) / first) * 100 : 0;
     const best = Math.max(...pts.map((p) => p.v));
-    const heaviest = Math.max(...ss.map((h) => topWeight(h.sets)));
-    const bestSet = ss.flatMap((h) => h.sets).reduce((b, s) => (s.weight * s.reps > b.weight * b.reps ? s : b));
+    const tops = ss.map((h) => evaluate(ex, h.sets).top);
+    const hardest = isAssisted(ex) ? Math.min(...tops) : Math.max(...tops);
+    const bestSet = bw
+      ? ss.flatMap((h) => h.sets).reduce((b, s) => (harder(ex, s.weight, b.weight) || (s.weight === b.weight && s.reps > b.reps) ? s : b))
+      : ss.flatMap((h) => h.sets).reduce((b, s) => (s.weight * s.reps > b.weight * b.reps ? s : b));
     html += `<section class="card mb-4">
       <h3 class="font-semibold">Exercise progress</h3>
-      <p class="mb-3 text-xs muted">Estimated 1-rep max per session (Epley formula). Tap the chart for details.</p>
+      <p class="mb-3 text-xs muted">${bw ? 'Most reps in a working set, per session.' : 'Estimated 1-rep max per session (Epley formula).'} Tap the chart for details.</p>
       <select class="input mb-3" data-action="stats-ex">${logged.map((e) => `<option value="${e.id}" ${e.id === ex.id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>
-      ${pts.length > 1 ? lineChart(pts) : '<p class="rounded-xl bg-slate-100 p-4 text-center text-sm muted dark:bg-slate-800/60">Log one more session to see a trend line.</p>'}
+      ${pts.length > 1 ? lineChart(pts, ex) : '<p class="rounded-xl bg-slate-100 p-4 text-center text-sm muted dark:bg-slate-800/60">Log one more session to see a trend line.</p>'}
       <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div><p class="muted">Best est. 1RM</p><p class="text-lg font-bold tabular-nums">${fmt(best)} kg</p></div>
-        <div><p class="muted">Change since first</p><p class="text-lg font-bold tabular-nums">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</p></div>
-        <div><p class="muted">Heaviest weight</p><p class="text-lg font-bold tabular-nums">${fmt(heaviest)} kg</p></div>
-        <div><p class="muted">Best set (kg × reps)</p><p class="text-lg font-bold tabular-nums">${fmt(bestSet.weight)} × ${bestSet.reps}</p></div>
+        <div><p class="muted">${bw ? 'Most reps (one set)' : 'Best est. 1RM'}</p><p class="text-lg font-bold tabular-nums">${fmt(best)}${bw ? '' : ' kg'}</p></div>
+        ${bw ? `<div><p class="muted">Sessions logged</p><p class="text-lg font-bold tabular-nums">${ss.length}</p></div>`
+          : `<div><p class="muted">Change since first</p><p class="text-lg font-bold tabular-nums">${change >= 0 ? '+' : ''}${change.toFixed(1)}%</p></div>`}
+        <div><p class="muted">${isAssisted(ex) ? 'Least assistance' : bw ? 'Most added weight' : 'Heaviest weight'}</p><p class="text-lg font-bold tabular-nums">${loadLabel(ex, hardest)}</p></div>
+        <div><p class="muted">Best set</p><p class="text-lg font-bold tabular-nums">${repsOnly(ex) ? `${bestSet.reps} reps` : `${loadLabel(ex, bestSet.weight)} × ${bestSet.reps}`}</p></div>
       </div>
     </section>`;
   }
@@ -1084,7 +1176,8 @@ function statsView() {
 }
 
 /** Single-series line chart (inline SVG) with a tap/hover tooltip. */
-function lineChart(points) {
+function lineChart(points, ex) {
+  const bw = ex && isBW(ex);
   const W = 340, H = 190, pl = 40, pr = 14, pt = 14, pb = 24;
   const vs = points.map((p) => p.v);
   let lo = Math.min(...vs), hi = Math.max(...vs);
@@ -1101,7 +1194,7 @@ function lineChart(points) {
   const x = (d) => pl + (t1 === t0 ? (W - pl - pr) / 2 : ((parseISO(d).getTime() - t0) / (t1 - t0)) * (W - pl - pr));
   const y = (v) => pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb);
   const xy = points.map((p) => ({ x: round2(x(p.date)), y: round2(y(p.v)),
-    label: `<b>${fmt(p.v)} kg</b> est. 1RM<br><span class='opacity-80'>${fmtShort(p.date)} · ${fmt(p.top.top)} kg × ${p.top.reps.join('/')}</span>` }));
+    label: `<b>${fmt(p.v)}${bw ? ' reps</b> best set' : ' kg</b> est. 1RM'}<br><span class='opacity-80'>${fmtShort(p.date)} · ${ex ? loadLabel(ex, p.top.top) : `${fmt(p.top.top)} kg`} × ${p.top.reps.join('/')}</span>` }));
   const path = xy.map((p, k) => `${k ? 'L' : 'M'}${p.x},${p.y}`).join(' ');
   const lastP = xy[xy.length - 1];
 
@@ -1171,13 +1264,22 @@ function exercisesView() {
     </div>
     <div>
       <span class="label">Equipment</span>
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-2 gap-2">
         ${radio('type', 'dumbbell', 'Dumbbell', f.type === 'dumbbell')}
-        ${radio('type', 'machine', 'Machine', f.type === 'machine')}
+        ${radio('type', 'machine', 'Machine / cable', f.type === 'machine')}
         ${radio('type', 'barbell', 'Barbell', f.type === 'barbell')}
+        ${radio('type', 'bodyweight', 'Bodyweight', f.type === 'bodyweight')}
       </div>
-      <p class="mt-1 text-xs muted" id="step-hint"></p>
     </div>
+    <div id="bw-mode-wrap">
+      <span class="label">How you progress</span>
+      <div class="grid grid-cols-3 gap-2">
+        ${radio('bwMode', 'weighted', 'Add weight', (f.bwMode || 'weighted') === 'weighted')}
+        ${radio('bwMode', 'reps', 'Reps only', f.bwMode === 'reps')}
+        ${radio('bwMode', 'assisted', 'Assisted', f.bwMode === 'assisted')}
+      </div>
+    </div>
+    <p class="-mt-2 text-xs muted" id="step-hint"></p>
     <div id="machine-step-wrap">
       <span class="label">Machine step size</span>
       <div class="grid grid-cols-2 gap-2">
@@ -1242,7 +1344,7 @@ function exercisesView() {
       </div>
       <div class="mt-3 flex items-center justify-between gap-2 rounded-xl bg-slate-100 px-3 py-2 dark:bg-slate-800/60">
         <span class="text-xs font-semibold uppercase tracking-wide muted">Next session</span>
-        <span class="font-bold tabular-nums">${fmt(p.weight)} kg × ${p.reps.join(' / ')}</span>
+        <span class="font-bold tabular-nums">${loadLabel(ex, p.weight)} × ${p.reps.join(' / ')}</span>
       </div>
     </article>`;
   }).join('')}</div>`;
@@ -1253,13 +1355,19 @@ function syncMachineToggle() {
   const form = document.getElementById('ex-form');
   if (!form) return;
   const type = form.querySelector('input[name=type]:checked')?.value;
-  form.querySelector('#machine-step-wrap').classList.toggle('hidden', type !== 'machine');
+  const mode = form.querySelector('input[name=bwMode]:checked')?.value;
+  const key = type === 'bodyweight' ? `bw-${mode}` : type;
+  form.querySelector('#bw-mode-wrap').classList.toggle('hidden', type !== 'bodyweight');
+  form.querySelector('#machine-step-wrap').classList.toggle('hidden', !(type === 'machine' || key === 'bw-assisted'));
   const hints = {
     dumbbell: 'Weights move in strict 2 kg jumps (10, 12, 14…).',
     machine: 'Weights move in your machine’s pin step (3 kg or 4 kg).',
     barbell: 'Weights round to the nearest 2.5 kg plate increment.',
+    'bw-weighted': 'Bodyweight reps. When you top out, add 2.5 kg (belt, vest or dumbbell). Starting weight = extra kg (0 for bodyweight).',
+    'bw-reps': 'Bodyweight only: you progress by adding reps.',
+    'bw-assisted': 'Assisted machine: less assistance is progress. Starting weight = the assistance you use.',
   };
-  form.querySelector('#step-hint').textContent = hints[type] || '';
+  form.querySelector('#step-hint').textContent = hints[key] || '';
 }
 
 // ----- History tab -----
@@ -1290,7 +1398,7 @@ function historyView() {
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
                 <p class="truncate font-semibold">${ex ? esc(ex.name) : '<span class="muted">Deleted exercise</span>'}</p>
-                <p class="mt-0.5 text-sm tabular-nums muted">${h.sets.map((s) => `${fmt(s.weight)}×${s.reps}`).join(' · ')}</p>
+                <p class="mt-0.5 text-sm tabular-nums muted">${setsText(ex, h.sets, ' · ')}${ex && repsOnly(ex) ? ' reps' : ''}</p>
                 ${h.rpe || h.note ? `<p class="mt-0.5 text-xs muted">${[h.rpe ? `RPE ${h.rpe}` : '', h.note ? `“${esc(h.note)}”` : ''].filter(Boolean).join(' · ')}</p>` : ''}
                 ${prs.length ? `<p class="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">🏆 ${prs.join(' · ')}</p>` : ''}
               </div>
@@ -1328,14 +1436,14 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
   if (modal.type === 'weight') attachWeightChart();
 }
 
-const EQ_FILTERS = [['', 'All'], ['dumbbell', 'Dumbbell'], ['machine', 'Machine / cable'], ['barbell', 'Barbell']];
+const EQ_FILTERS = [['', 'All'], ['dumbbell', 'Dumbbell'], ['machine', 'Machine / cable'], ['barbell', 'Barbell'], ['bodyweight', 'Bodyweight']];
 const ownedNames = () => new Set(state.exercises.map((e) => e.name.trim().toLowerCase()));
 
 function libraryModal() {
@@ -1379,7 +1487,7 @@ function libraryList() {
         <input type="checkbox" class="h-5 w-5 shrink-0 accent-indigo-600" data-lib-pick="${idx}" ${picked ? 'checked' : ''} ${have ? 'disabled' : ''}>
         <span class="min-w-0 flex-1">
           <span class="block truncate font-medium">${esc(item.name)}</span>
-          <span class="block truncate text-xs muted">${EQUIPMENT_LABEL[item.type]} · ${item.repMin}–${item.repMax} reps · ${muscleLabel(item)}</span>
+          <span class="block truncate text-xs muted">${isAssisted(item) ? 'Assisted machine' : EQUIPMENT_LABEL[item.type]} · ${item.repMin}–${item.repMax} reps · ${muscleLabel(item)}</span>
         </span>
         ${have ? '<span class="badge shrink-0 bg-slate-500/10 text-slate-600 dark:text-slate-300">Added</span>' : ''}
       </label>
@@ -1392,7 +1500,7 @@ function libraryList() {
   }).join('')}</ul>`;
 }
 
-const EQUIPMENT_LABEL = { dumbbell: 'Dumbbell', machine: 'Machine', barbell: 'Barbell' };
+const EQUIPMENT_LABEL = { dumbbell: 'Dumbbell', machine: 'Machine', barbell: 'Barbell', bodyweight: 'Bodyweight' };
 
 function refreshLibrary() {
   document.getElementById('lib-list').innerHTML = libraryList();
@@ -1457,20 +1565,57 @@ function dayModal(date) {
     </div>`;
 }
 
+function swapModal() {
+  const entry = state.draft?.entries[modal.e];
+  const cur = entry && exById(entry.exerciseId);
+  if (!cur) return `${modalHead('Swap exercise')}<p class="muted">That exercise is no longer in this workout.</p>`;
+  const inDraft = new Set(state.draft.entries.map((x) => x.exerciseId));
+  const overlap = (ex) => sum(Object.entries(ex.muscles || {}).map(([m, f]) => Math.min(f, cur.muscles?.[m] || 0)));
+  const options = state.exercises.filter((ex) => !inDraft.has(ex.id))
+    .map((ex) => ({ ex, score: overlap(ex) }))
+    .sort((a, b) => b.score - a.score || a.ex.name.localeCompare(b.ex.name));
+  return `${modalHead(`Swap ${esc(cur.name)}`)}
+    <p class="-mt-1 mb-2 text-sm muted">Machine taken? Pick a replacement for this workout. Your routine stays the same.</p>
+    ${options.length ? `<ul class="divide-y divide-slate-200 dark:divide-slate-800">${options.map(({ ex, score }) => {
+      const p = predict(ex);
+      return `<li><button class="flex w-full items-center justify-between gap-3 py-2.5 text-left" data-action="swap-to" data-id="${ex.id}">
+        <span class="min-w-0">
+          <span class="block truncate font-medium">${esc(ex.name)} ${score > 0 ? '<span class="badge ml-1 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Similar</span>' : ''}</span>
+          <span class="block truncate text-xs muted">${muscleLabel(ex) || eqLabel(ex)}</span>
+        </span>
+        <span class="shrink-0 text-right text-sm font-semibold tabular-nums">${loadLabel(ex, p.weight)}</span>
+      </button></li>`;
+    }).join('')}</ul>` : '<p class="text-sm muted">No other exercises yet. Add some in the Exercises tab.</p>'}`;
+}
+
+function clockText(d) {
+  const mins = Math.max(0, Math.floor((Date.now() - d.startedAt) / 60000));
+  return `⏱ ${mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`}`;
+}
+function tickClock() {
+  const el = document.getElementById('workout-clock');
+  if (el && state.draft?.startedAt) el.textContent = clockText(state.draft);
+}
+setInterval(tickClock, 15000);
+
 function summaryModal() {
-  const { saved, prs, ups, stalls } = modal;
+  const { saved, prs, ups, stalls, mins, sets, volume } = modal;
+  const stat = (label, value) => `<div class="rounded-xl bg-slate-100 p-2 dark:bg-slate-800/60"><p class="text-lg font-bold tabular-nums">${value}</p><p class="text-xs muted">${label}</p></div>`;
   return `<div class="text-center">
       <p class="text-4xl">${prs.length ? '🏆' : '💪'}</p>
       <h3 class="mt-2 text-2xl font-bold">Workout saved</h3>
       <p class="text-sm muted">${saved} exercise${saved === 1 ? '' : 's'} logged</p>
+    </div>
+    <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+      ${stat('Duration', mins === null || mins === undefined ? '—' : mins < 1 ? '<1 min' : `${mins} min`)}${stat('Sets', sets ?? '—')}${stat('Kg lifted', volume ? fmtKg(volume) : '—')}
     </div>
     ${prs.length ? `<div class="mt-4 rounded-xl bg-amber-500/10 p-3">
       <p class="font-semibold text-amber-800 dark:text-amber-300">New personal records</p>
       <ul class="mt-1 space-y-0.5 text-sm">${prs.map((p) => `<li><b>${esc(p.name)}</b> · ${p.items.join(' · ')}</li>`).join('')}</ul>
     </div>` : ''}
     ${ups.length ? `<div class="mt-3 rounded-xl bg-emerald-500/10 p-3">
-      <p class="font-semibold text-emerald-800 dark:text-emerald-300">Weight goes up next time</p>
-      <ul class="mt-1 space-y-0.5 text-sm">${ups.map((u) => `<li><b>${esc(u.name)}</b> → ${fmt(u.weight)} kg</li>`).join('')}</ul>
+      <p class="font-semibold text-emerald-800 dark:text-emerald-300">Moving up next time</p>
+      <ul class="mt-1 space-y-0.5 text-sm">${ups.map((u) => `<li><b>${esc(u.name)}</b> → ${esc(u.label)}</li>`).join('')}</ul>
     </div>` : ''}
     ${stalls.length ? `<div class="mt-3 rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
       <p class="font-semibold">Plateau watch</p>
@@ -2761,13 +2906,18 @@ function finishWorkout() {
     const items = prsFor(h);
     if (items.length) prs.push({ name: ex.name, items });
     const p = predict(ex);
-    if (p.rule === 'up') ups.push({ name: ex.name, weight: p.weight });
+    if (p.rule === 'up') ups.push({ name: ex.name, label: loadLabel(ex, p.weight) });
     if (plateau(ex)) stalls.push(ex.name);
   });
   state.draft = null;
   rest = null;
   tickRest();
-  modal = { type: 'summary', saved: saved.length, prs, ups, stalls };
+  const mins = d.startedAt ? Math.round((Date.now() - d.startedAt) / 60000) : null;
+  modal = {
+    type: 'summary', saved: saved.length, prs, ups, stalls,
+    mins: mins !== null && mins <= 300 ? mins : null, // ignore workouts left open for hours
+    sets: sum(saved.map((h) => h.sets.length)), volume: sum(saved.map(kgLifted)),
+  };
   saveState();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2956,6 +3106,17 @@ document.addEventListener('click', (e) => {
       return;
     case 'rest-skip': rest = null; tickRest(); return;
     case 'toggle-warmup': entry.showWarmup = !entry.showWarmup; break;
+    case 'swap-entry': modal = { type: 'swap', e: ei }; renderModal(); return;
+    case 'swap-to': {
+      const en = state.draft?.entries[modal.e], ex = exById(id);
+      if (!en || !ex) return;
+      if (en.sets.some((x) => x.reps !== '') && !confirm('Swap this exercise? The sets you’ve logged for it will be cleared.')) return;
+      const p = predict(ex);
+      Object.assign(en, { exerciseId: id, sets: p.reps.map(() => ({ weight: String(p.weight), reps: '' })), note: '', rpe: '', deload: false });
+      modal = null;
+      toast(`Swapped to ${ex.name}`);
+      break;
+    }
     case 'apply-deload': {
       const stall = plateau(exById(entry.exerciseId));
       if (!stall) return;
@@ -3106,7 +3267,7 @@ document.addEventListener('change', (e) => {
     case 'stats-ex': statsExId = el.value; render(); return;
     case 'bar-weight': state.settings.barWeight = Number(el.value); break;
     default:
-      if (el.name === 'type') syncMachineToggle();
+      if (el.name === 'type' || el.name === 'bwMode') syncMachineToggle();
       return;
   }
   saveState();
@@ -3130,7 +3291,7 @@ document.addEventListener('submit', (e) => {
   form.querySelectorAll('#muscle-chips [data-m]').forEach((c) => { const l = Number(c.dataset.level); if (l) muscles[c.dataset.m] = l; });
 
   const data = {
-    name, type: fd.get('type'), machineStep: Number(fd.get('machineStep')) === 3 ? 3 : 4,
+    name, type: fd.get('type'), bwMode: fd.get('bwMode') || 'weighted', machineStep: Number(fd.get('machineStep')) === 3 ? 3 : 4,
     repMin, repMax, sets, startWeight, muscles, rest: Number(fd.get('rest')) || 90,
   };
   if (editingId) {
