@@ -439,7 +439,7 @@ function seedState() {
 
 const emptyFood = () => ({
   profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [],
-  prefs: { trainingOn: false, trainingBoost: 200, water: 2500 },
+  prefs: { trainingOn: false, trainingGap: 200, water: 2500 },
 });
 
 /** Accepts saved data from any version of the app and fills in new fields. */
@@ -1795,6 +1795,15 @@ function applyCheckin(accept) {
 
 const trainingDaysPerWeek = () => DAYS.filter((_, i) => routineById(state.schedule.weekly[i])).length;
 
+/**
+ * Training days sit `gap` kcal above rest days, split around the normal
+ * target so the weekly total is unchanged (e.g. 2,300 with 3 training days
+ * and a 200 gap → ~2,414 training, ~2,214 rest).
+ */
+function trainingShift(gap, n) {
+  return { training: Math.round((gap * (7 - n)) / 7), rest: -Math.round((gap * n) / 7) };
+}
+
 /** Targets for a date: calories (as carbs) shift from rest days to training days; the weekly total is unchanged. */
 function targetsFor(date) {
   const t = state.food.targets;
@@ -1802,7 +1811,7 @@ function targetsFor(date) {
   const n = trainingDaysPerWeek(), pr = state.food.prefs;
   if (!pr.trainingOn || n === 0 || n === 7) return { ...t, dayType: null, dayDelta: 0 };
   const training = !!plannedRoutine(date) || state.history.some((h) => h.date === date);
-  const d = training ? pr.trainingBoost : -Math.round((pr.trainingBoost * n) / (7 - n));
+  const d = trainingShift(pr.trainingGap, n)[training ? 'training' : 'rest'];
   return { ...t, kcal: t.kcal + d, carbs: Math.max(0, t.carbs + Math.round(d / 4)), dayType: training ? 'training' : 'rest', dayDelta: d };
 }
 
@@ -2266,18 +2275,28 @@ function foodSetupModal() {
       </div>
       <div class="space-y-3 rounded-xl bg-slate-100 p-3 dark:bg-slate-800/60">
         <label class="flex items-start justify-between gap-3">
-          <span><span class="block font-semibold">Eat more on training days</span><span class="text-xs muted">Moves calories (as carbs) from rest days to days with a workout in your Plan. Your weekly total stays the same.</span></span>
+          <span><span class="block font-semibold">Eat more on training days</span><span class="text-xs muted">Training days (workouts in your Plan) get a little more, as carbs, and rest days a little less, so your weekly total stays the same.</span></span>
           <input type="checkbox" name="trainingOn" class="mt-1 h-6 w-6 shrink-0 accent-indigo-600" ${pr.trainingOn ? 'checked' : ''}>
         </label>
-        <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Extra on training days</span>
-          <select class="input py-2" name="trainingBoost">${[100, 150, 200, 250, 300].map((v) => `<option value="${v}" ${pr.trainingBoost === v ? 'selected' : ''}>+${v} kcal</option>`).join('')}</select>
+        <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Difference between training and rest days</span>
+          <select class="input py-2" name="trainingGap">${[100, 150, 200, 250, 300, 400].map((v) => `<option value="${v}" ${pr.trainingGap === v ? 'selected' : ''}>${v} kcal</option>`).join('')}</select>
         </label>
+        <p class="text-sm" id="tday-preview">${trainingPreview(t.kcal, pr.trainingGap, pr.trainingOn)}</p>
         <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Daily water target</span>
           <select class="input py-2" name="water">${[1500, 1750, 2000, 2250, 2500, 2750, 3000, 3500, 4000].map((v) => `<option value="${v}" ${pr.water === v ? 'selected' : ''}>${fmtKg(v)} ml</option>`).join('')}</select>
         </label>
       </div>
       <button type="submit" class="btn-primary w-full">Save targets</button>
     </form>`;
+}
+
+function trainingPreview(kcal, gap, on) {
+  const n = trainingDaysPerWeek();
+  if (!on) return '<span class="muted">Off: the same target every day.</span>';
+  if (!(kcal > 0)) return '';
+  if (n === 0 || n === 7) return '<span class="muted">Set up a weekly schedule with some rest days in the Plan tab to use this.</span>';
+  const sh = trainingShift(gap, n);
+  return `Training days <b>${fmtKg(kcal + sh.training)}</b> · rest days <b>${fmtKg(kcal + sh.rest)}</b> kcal <span class="muted">(${n} training day${n === 1 ? '' : 's'} a week in your Plan)</span>`;
 }
 
 function readProfile(form) {
@@ -2656,6 +2675,7 @@ document.addEventListener('input', (e) => {
   if (form) {
     if (el.dataset.target) form.dataset.manual = '1';
     else if (['sex', 'age', 'height', 'weight', 'activity', 'goal'].includes(el.name) && form.dataset.manual !== '1') fillTargets(form);
+    document.getElementById('tday-preview').innerHTML = trainingPreview(Number(form.elements.kcal.value), Number(form.elements.trainingGap.value), form.elements.trainingOn.checked);
   }
 });
 
@@ -2681,7 +2701,7 @@ document.addEventListener('submit', (e) => {
     Object.assign(t, fixedTargets(t.kcal), { custom: form.dataset.manual === '1' });
     state.food.profile = p;
     state.food.targets = t;
-    Object.assign(state.food.prefs, { trainingOn: fd.get('trainingOn') === 'on', trainingBoost: Number(fd.get('trainingBoost')) || 200, water: Number(fd.get('water')) || 2500 });
+    Object.assign(state.food.prefs, { trainingOn: fd.get('trainingOn') === 'on', trainingGap: Number(fd.get('trainingGap')) || 200, water: Number(fd.get('water')) || 2500 });
     modal = null;
     saveState(); render(); toast('Targets saved');
   } else if (form.id === 'fq-form') {
