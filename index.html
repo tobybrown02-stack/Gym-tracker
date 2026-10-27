@@ -127,6 +127,87 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
 const SET_TARGET = [10, 20]; // weekly hard sets per muscle
 
+/**
+ * Built-in exercise library.
+ * name | equipment (d = dumbbell, m = machine/cable, b = barbell) | rep range |
+ * starting kg | primary muscles | secondary muscles | rest seconds (optional)
+ */
+const LIBRARY = `
+Barbell Bench Press|b|5-8|40|Chest|Triceps,Shoulders|150
+Incline Barbell Bench Press|b|6-10|35|Chest|Shoulders,Triceps|120
+Dumbbell Bench Press|d|8-12|16|Chest|Triceps,Shoulders|120
+Incline Dumbbell Press|d|8-12|14|Chest|Shoulders,Triceps|120
+Dumbbell Fly|d|10-15|8|Chest||
+Chest Press Machine|m|8-12|30|Chest|Triceps,Shoulders|
+Incline Chest Press Machine|m|8-12|25|Chest|Shoulders,Triceps|
+Pec Deck|m|10-15|25|Chest||
+Cable Crossover|m|12-15|10|Chest||
+Deadlift|b|3-6|60|Back,Hamstrings,Glutes|Core|180
+Barbell Row|b|6-10|40|Back|Biceps|120
+Dumbbell Row|d|8-12|16|Back|Biceps|
+Lat Pulldown|m|8-12|35|Back|Biceps|
+Close-Grip Lat Pulldown|m|8-12|35|Back|Biceps|
+Seated Cable Row|m|8-12|35|Back|Biceps|
+Chest-Supported Row Machine|m|8-12|30|Back|Biceps|
+Straight-Arm Pulldown|m|12-15|15|Back||
+Barbell Shrug|b|10-15|40|Back||
+Dumbbell Shrug|d|10-15|20|Back||
+Overhead Press|b|5-8|25|Shoulders|Triceps|150
+Seated Dumbbell Shoulder Press|d|8-12|12|Shoulders|Triceps|
+Arnold Press|d|8-12|10|Shoulders|Triceps|
+Shoulder Press Machine|m|8-12|25|Shoulders|Triceps|
+Dumbbell Lateral Raise|d|12-15|6|Shoulders||
+Cable Lateral Raise|m|12-15|5|Shoulders||
+Lateral Raise Machine|m|12-15|15|Shoulders||
+Reverse Pec Deck|m|12-15|20|Shoulders|Back|
+Dumbbell Rear Delt Fly|d|12-15|6|Shoulders|Back|
+Face Pull|m|12-15|15|Shoulders|Back|
+Barbell Curl|b|8-12|20|Biceps||
+EZ-Bar Curl|b|8-12|15|Biceps||
+Dumbbell Curl|d|8-12|10|Biceps||
+Hammer Curl|d|8-12|10|Biceps||
+Incline Dumbbell Curl|d|10-12|8|Biceps||
+Preacher Curl Machine|m|10-12|20|Biceps||
+Cable Curl|m|10-15|15|Biceps||
+Close-Grip Bench Press|b|6-10|35|Triceps|Chest,Shoulders|120
+EZ-Bar Skull Crusher|b|8-12|15|Triceps||
+Tricep Pushdown|m|10-15|20|Triceps||
+Overhead Cable Tricep Extension|m|10-15|15|Triceps||
+Overhead Dumbbell Tricep Extension|d|10-12|12|Triceps||
+Tricep Dip Machine|m|8-12|30|Triceps|Chest|
+Barbell Back Squat|b|5-8|40|Quads,Glutes|Hamstrings,Core|150
+Front Squat|b|5-8|30|Quads|Glutes,Core|150
+Leg Press|m|10-15|80|Quads|Glutes|120
+Hack Squat Machine|m|8-12|40|Quads|Glutes|120
+Leg Extension|m|10-15|30|Quads||
+Goblet Squat|d|10-15|16|Quads|Glutes|
+Bulgarian Split Squat|d|8-12|8|Quads,Glutes||
+Dumbbell Walking Lunge|d|10-12|10|Quads,Glutes||
+Romanian Deadlift|b|6-10|40|Hamstrings|Glutes,Back|120
+Dumbbell Romanian Deadlift|d|8-12|16|Hamstrings|Glutes|
+Lying Leg Curl|m|10-15|25|Hamstrings||
+Seated Leg Curl|m|10-15|30|Hamstrings||
+Barbell Hip Thrust|b|8-12|40|Glutes|Hamstrings|
+Hip Thrust Machine|m|8-12|40|Glutes|Hamstrings|
+Hip Abduction Machine|m|12-15|30|Glutes||
+Cable Glute Kickback|m|12-15|10|Glutes||
+Standing Calf Raise Machine|m|10-15|40|Calves||
+Seated Calf Raise|m|12-15|20|Calves||
+Leg Press Calf Raise|m|12-15|60|Calves||
+Cable Crunch|m|10-15|25|Core||
+Ab Crunch Machine|m|10-15|25|Core||
+Cable Woodchopper|m|12-15|10|Core||
+`.trim().split('\n').map((line) => {
+  const [name, t, range, start, primary, secondary, restSecs] = line.split('|');
+  const [repMin, repMax] = range.split('-').map(Number);
+  const muscles = {};
+  secondary.split(',').filter(Boolean).forEach((m) => (muscles[m] = 0.5));
+  primary.split(',').filter(Boolean).forEach((m) => (muscles[m] = 1));
+  const type = { d: 'dumbbell', m: 'machine', b: 'barbell' }[t];
+  const rest = Number(restSecs) || (repMax <= 8 ? 150 : repMin >= 12 ? 60 : 90);
+  return { name, type, repMin, repMax, sets: 3, startWeight: Number(start), muscles, rest };
+});
+
 // ---------- Small helpers -------------------------------------------------
 const round2 = (x) => Math.round(x * 100) / 100;
 const sum = (arr) => arr.reduce((a, b) => a + b, 0);
@@ -385,6 +466,7 @@ let modal = null;          // { type: 'day' | 'summary', ... }
 let planWeek = weekStart(todayISO());
 let statsWeek = weekStart(todayISO());
 let statsExId = null;
+let lib = { query: '', eq: '', muscle: '', step: 4, picked: new Map() }; // library browser state
 
 const exById = (id) => state.exercises.find((e) => e.id === id);
 const routineById = (id) => state.routines.find((r) => r.id === id);
@@ -1049,6 +1131,10 @@ function exercisesView() {
     </label>`;
 
   let html = `<h2 class="mb-4 text-2xl font-bold">Exercise database</h2>
+  <button class="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl bg-indigo-600 px-4 py-3 text-left text-white transition active:scale-[0.99]" data-action="open-library">
+    <span><span class="block font-semibold">Browse exercise library</span><span class="text-sm opacity-80">${LIBRARY.length} common exercises, ready to add in one go</span></span>
+    <span class="text-2xl">›</span>
+  </button>
   <form id="ex-form" class="card mb-6 space-y-4" autocomplete="off">
     <h3 class="font-semibold">${editing ? 'Edit exercise' : 'Add exercise'}</h3>
     <div>
@@ -1211,8 +1297,95 @@ function historyView() {
 function renderModal() {
   const box = document.getElementById('modal');
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
-  document.getElementById('modal-body').innerHTML = modal.type === 'day' ? dayModal(modal.date) : summaryModal();
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, library: libraryModal }[modal.type];
+  document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
+}
+
+const EQ_FILTERS = [['', 'All'], ['dumbbell', 'Dumbbell'], ['machine', 'Machine / cable'], ['barbell', 'Barbell']];
+const ownedNames = () => new Set(state.exercises.map((e) => e.name.trim().toLowerCase()));
+
+function libraryModal() {
+  return `<div class="mb-3 flex items-start justify-between gap-2">
+      <div>
+        <h3 class="text-xl font-bold">Exercise library</h3>
+        <p class="text-sm muted">Tick exercises to add. Weights are light defaults; type your own if you know it.</p>
+      </div>
+      <button class="icon-btn -mr-2" data-action="close-modal" aria-label="Close">${ICON_X}</button>
+    </div>
+    <input class="input mb-2" type="search" placeholder="Search exercises…" data-lib="query" value="${esc(lib.query)}" aria-label="Search exercises">
+    <div class="mb-2 grid grid-cols-2 gap-2">
+      <select class="input py-2 text-sm" data-lib="eq" aria-label="Equipment">${EQ_FILTERS.map(([v, l]) => `<option value="${v}" ${lib.eq === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select class="input py-2 text-sm" data-lib="muscle" aria-label="Muscle"><option value="">All muscles</option>${MUSCLES.map((m) => `<option ${lib.muscle === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+    </div>
+    <div id="lib-list">${libraryList()}</div>
+    <div class="sticky -bottom-5 -mx-5 mt-3 border-t border-slate-200 bg-white px-5 pb-1 pt-3 dark:border-slate-800 dark:bg-slate-900">
+      <div class="mb-2 flex items-center justify-between gap-3 text-sm">
+        <span class="muted">Machine weight steps</span>
+        <div class="flex gap-1">${[3, 4].map((s) => `<button class="rounded-lg px-3 py-1.5 font-semibold ${lib.step === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}" data-action="lib-step" data-step="${s}">${s} kg</button>`).join('')}</div>
+      </div>
+      <button class="btn-primary w-full" data-action="lib-add" id="lib-add" ${lib.picked.size ? '' : 'disabled'}>${libAddLabel()}</button>
+    </div>`;
+}
+
+const libAddLabel = () => (lib.picked.size ? `Add ${lib.picked.size} exercise${lib.picked.size === 1 ? '' : 's'}` : 'Tick exercises to add');
+
+function libraryList() {
+  const owned = ownedNames();
+  const q = lib.query.trim().toLowerCase();
+  const items = LIBRARY.map((item, idx) => ({ item, idx })).filter(({ item }) =>
+    (!q || item.name.toLowerCase().includes(q)) &&
+    (!lib.eq || item.type === lib.eq) &&
+    (!lib.muscle || item.muscles[lib.muscle]));
+  if (!items.length) return '<p class="py-6 text-center text-sm muted">No exercises match.</p>';
+  return `<ul class="divide-y divide-slate-200 dark:divide-slate-800">${items.map(({ item, idx }) => {
+    const have = owned.has(item.name.toLowerCase());
+    const picked = lib.picked.has(idx);
+    return `<li class="py-2">
+      <label class="flex items-center gap-3 ${have ? 'opacity-50' : 'cursor-pointer'}">
+        <input type="checkbox" class="h-5 w-5 shrink-0 accent-indigo-600" data-lib-pick="${idx}" ${picked ? 'checked' : ''} ${have ? 'disabled' : ''}>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate font-medium">${esc(item.name)}</span>
+          <span class="block truncate text-xs muted">${EQUIPMENT_LABEL[item.type]} · ${item.repMin}–${item.repMax} reps · ${muscleLabel(item)}</span>
+        </span>
+        ${have ? '<span class="badge shrink-0 bg-slate-500/10 text-slate-600 dark:text-slate-300">Added</span>' : ''}
+      </label>
+      ${picked ? `<div class="mt-2 flex items-center gap-2 pl-8 text-sm">
+        <span class="muted">Starting weight</span>
+        <input class="input w-24 py-1.5 text-center" type="number" inputmode="decimal" step="any" min="0" data-lib-weight="${idx}" value="${esc(lib.picked.get(idx))}" placeholder="${item.startWeight}">
+        <span class="muted">kg</span>
+      </div>` : ''}
+    </li>`;
+  }).join('')}</ul>`;
+}
+
+const EQUIPMENT_LABEL = { dumbbell: 'Dumbbell', machine: 'Machine', barbell: 'Barbell' };
+
+function refreshLibrary() {
+  document.getElementById('lib-list').innerHTML = libraryList();
+  const add = document.getElementById('lib-add');
+  add.disabled = !lib.picked.size;
+  add.textContent = libAddLabel();
+}
+
+function addFromLibrary() {
+  const owned = ownedNames();
+  let added = 0;
+  lib.picked.forEach((weight, idx) => {
+    const item = LIBRARY[idx];
+    if (owned.has(item.name.toLowerCase())) return;
+    const w = parseFloat(weight);
+    state.exercises.push({
+      id: uid(), ...item, muscles: { ...item.muscles }, machineStep: lib.step,
+      startWeight: Number.isFinite(w) && w >= 0 ? w : item.startWeight,
+    });
+    added++;
+  });
+  lib = { query: '', eq: '', muscle: '', step: lib.step, picked: new Map() };
+  modal = null;
+  saveState();
+  render();
+  toast(`Added ${added} exercise${added === 1 ? '' : 's'}`);
 }
 
 function dayModal(date) {
@@ -1467,6 +1640,9 @@ document.addEventListener('click', (e) => {
     case 'bar': btn.closest('[data-chart]').querySelector('[data-readout]').innerHTML = btn.dataset.readout; return;
 
     // Exercises
+    case 'open-library': modal = { type: 'library' }; renderModal(); return;
+    case 'lib-step': lib.step = Number(btn.dataset.step); renderModal(); return;
+    case 'lib-add': return addFromLibrary();
     case 'muscle': btn.dataset.level = { 0: '1', 1: '0.5', 0.5: '0' }[btn.dataset.level] ?? '0'; return;
     case 'edit-ex': editingId = id; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return;
     case 'cancel-edit': editingId = null; render(); return;
@@ -1512,11 +1688,22 @@ document.addEventListener('input', (e) => {
     saveState();
   } else if (el.dataset.routineField) {
     routineEdit[el.dataset.routineField] = el.value;
+  } else if (el.dataset.lib) {
+    lib[el.dataset.lib] = el.value;
+    refreshLibrary();
+  } else if (el.dataset.libWeight) {
+    lib.picked.set(Number(el.dataset.libWeight), el.value);
   }
 });
 
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset.libPick) {
+    const idx = Number(el.dataset.libPick);
+    if (el.checked) lib.picked.set(idx, ''); else lib.picked.delete(idx);
+    refreshLibrary();
+    return;
+  }
   switch (el.dataset.action) {
     case 'draft-date': state.draft.date = el.value || todayISO(); break;
     case 'weekly-set':
