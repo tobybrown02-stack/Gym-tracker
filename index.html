@@ -538,7 +538,7 @@ function seedState() {
     schedule: { weekly: {}, overrides: {} },
     settings: { barWeight: 20 },
     food: emptyFood(),
-    body: { measures: {} },
+    body: { measures: {}, journey: null },
     programme: null,
     pastProgrammes: [],
     draft: null,
@@ -559,7 +559,7 @@ function migrate(d) {
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
     settings: { barWeight: 20, ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
-    body: { measures: {}, ...(d.body || {}) },
+    body: { measures: {}, journey: null, ...(d.body || {}) },
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
     draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, test: false, showWarmup: false, ...en })) } : null,
@@ -587,6 +587,7 @@ let modal = null;          // { type: 'day' | 'summary', ... }
 let planWeek = weekStart(todayISO());
 let statsWeek = weekStart(todayISO());
 let statsExId = null;
+let statsMuscle = 'Back';
 let lib = { query: '', eq: '', muscle: '', step: 4, picked: new Map() }; // library browser state
 
 const exById = (id) => state.exercises.find((e) => e.id === id);
@@ -728,7 +729,7 @@ function render() {
   const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
   document.getElementById('view').innerHTML = (view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
   if (view === 'exercises') syncMachineToggle();
-  if (view === 'stats') attachCharts();
+  if (view === 'stats') { attachCharts(); attachWeightChart(); }
   renderModal();
 }
 
@@ -1469,6 +1470,152 @@ function recapHtml(start, dismissible) {
   </section>`;
 }
 
+// ----- Muscle balance (planned sets) -----
+/** Working sets per muscle the weekly plan will give you (secondary muscles count ½). */
+function plannedVolume(start) {
+  const out = Object.fromEntries(MUSCLES.map((m) => [m, 0]));
+  DAYS.forEach((_, i) => {
+    const d = addDays(start, i), r = plannedRoutine(d);
+    if (!r) return;
+    r.exerciseIds.map(exById).filter(Boolean).forEach((ex) => {
+      const n = targetFor(ex, isDeloadWeek(d), d).reps.length;
+      Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (m in out) out[m] += n * f; });
+    });
+  });
+  return out;
+}
+
+/** Library exercises that mainly train a muscle and aren't in your list yet (no squats or deadlifts). */
+function fillers(muscle) {
+  const owned = ownedNames(), order = { m: 0, machine: 0, dumbbell: 1, bodyweight: 2, barbell: 3 };
+  return LIBRARY.filter((it) => it.muscles[muscle] === 1 && !owned.has(it.name.toLowerCase()) && !/squat|deadlift/i.test(it.name))
+    .sort((a, b) => (order[a.type] ?? 4) - (order[b.type] ?? 4)).slice(0, 3).map((it) => it.name);
+}
+
+function balanceCard() {
+  if (!state.routines.length) return '';
+  const vol = plannedVolume(planWeek), deload = isDeloadWeek(planWeek);
+  const tagged = MUSCLES; // show every muscle, so one with no exercises at all stands out
+  if (!MUSCLES.some((m) => vol[m] > 0)) return '';
+  const max = Math.max(22, ...tagged.map((m) => vol[m]));
+  const low = deload ? [] : tagged.filter((m) => vol[m] < SET_TARGET[0] && m !== 'Core');
+  const pct = (v) => `${(v / max) * 100}%`;
+  return `<section class="card mb-4">
+    <h3 class="font-semibold">Muscle balance</h3>
+    <p class="text-xs muted">Working sets your plan gives each muscle ${planWeek === weekStart(todayISO()) ? 'this week' : `in the week of ${fmtShort(planWeek)}`}, before you train · secondary muscles count ½ · band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets</p>
+    ${deload ? '<p class="mt-2 rounded-xl bg-amber-500/10 p-2 text-sm text-amber-800 dark:text-amber-300">Deload week: low numbers are the point.</p>' : ''}
+    <div class="mt-3 space-y-2">${tagged.map((m) => {
+      const v = vol[m], tone = deload ? 'bg-amber-500' : v < SET_TARGET[0] ? 'bg-rose-500' : v <= SET_TARGET[1] ? 'bg-emerald-500' : 'bg-indigo-500';
+      return `<div class="grid grid-cols-[5.5rem_1fr_2.5rem] items-center gap-2">
+        <span class="text-sm font-medium">${m}</span>
+        <div class="relative h-4 rounded bg-slate-100 dark:bg-slate-800">
+          <div class="absolute inset-y-0 rounded bg-emerald-500/15" style="left:${pct(SET_TARGET[0])};width:${pct(SET_TARGET[1] - SET_TARGET[0])}"></div>
+          <div class="absolute inset-y-0 left-0 rounded ${tone}" style="width:${v ? `max(4px, ${pct(v)})` : '0'}"></div>
+        </div>
+        <span class="text-right text-sm font-semibold tabular-nums">${fmt(round1(v))}</span>
+      </div>`;
+    }).join('')}</div>
+    ${low.length ? `<div class="mt-3 space-y-2 rounded-xl bg-rose-500/10 p-3 text-sm">${low.map((m) => {
+      const f = fillers(m);
+      return `<p><b>${m}: ${fmt(round1(vol[m]))} sets</b>, aim for ${SET_TARGET[0]}+.${f.length ? ` Try adding: ${f.map(esc).join(', ')}.` : ''}</p>`;
+    }).join('')}<p class="text-xs muted">Add one from Exercises → Browse exercise library, then put it in a routine. 2–3 extra sets on two days is usually enough.</p></div>`
+      : deload ? '' : '<p class="mt-3 text-sm text-emerald-700 dark:text-emerald-400">Every trained muscle gets at least 10 sets. Nicely balanced.</p>'}
+  </section>`;
+}
+
+// ----- Weight-loss journey -----
+/** Trend change per week over the last 4 weeks (falls back to the 2-week rate). */
+function rate4w() {
+  const series = weightSeries();
+  if (series.length < 2) return null;
+  const last = series[series.length - 1];
+  const first = series.find((x) => daysBetween(x.date, last.date) <= 28 && x.date !== state.body.journey?.date);
+  const days = first ? daysBetween(first.date, last.date) : 0;
+  return days >= 10 ? ((last.trend - first.trend) / days) * 7 : weeklyRate(series);
+}
+
+function journeyCard() {
+  const j = state.body.journey;
+  if (!j) {
+    return `<section class="card mb-4">
+      <h3 class="font-semibold">Your journey</h3>
+      <p class="mt-1 text-sm muted">Add the weight you started at (even from before you used this app) to see your total loss, milestones and when you’re likely to hit your goal.</p>
+      <button class="btn-primary mt-3 w-full py-2.5" data-action="journey">Add where you started</button>
+    </section>`;
+  }
+  const series = weightSeries(), now = series.length ? series[series.length - 1].trend : j.kg;
+  const lost = j.kg - now, goal = j.goal || state.programme?.goalKg || null;
+  const rate = rate4w();
+  // Milestones: every 5 kg lost, and every round 5 kg on the scale, down to the goal.
+  const stones = [];
+  for (let k = 5; k <= Math.max(lost + 10, 5); k += 5) stones.push({ label: `${k} kg lost`, at: j.kg - k });
+  for (let w = Math.floor((j.kg - 0.01) / 5) * 5; w > (goal || now - 10); w -= 5) stones.push({ label: `${w} kg`, at: w });
+  if (goal) stones.push({ label: `Goal ${fmt(goal)} kg`, at: goal, goal: true });
+  stones.sort((a, b) => b.at - a.at);
+  const done = stones.filter((x) => now <= x.at), next = stones.filter((x) => now > x.at).slice(0, 3);
+  let eta = '';
+  if (goal && now > goal) {
+    eta = rate !== null && rate < -0.05
+      ? `<b>${fmt(round1(now - goal))} kg</b> to your ${fmt(goal)} kg goal. At your current rate (${fmt(round2(-rate))} kg a week) that’s around <b>${parseISO(addDays(todayISO(), Math.round(((now - goal) / -rate) * 7))).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b>.`
+      : `<b>${fmt(round1(now - goal))} kg</b> to your ${fmt(goal)} kg goal. A date estimate appears once your trend is heading down.`;
+  } else if (goal) eta = `<b class="text-emerald-700 dark:text-emerald-400">Goal reached! 🎉</b>`;
+  const chip = (x, ok) => `<span class="chip ${ok ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : ''} ${x.goal ? 'font-bold' : ''}">${ok ? '✓ ' : ''}${x.label}</span>`;
+  return `<section class="card mb-4">
+    <div class="flex items-center justify-between gap-2"><h3 class="font-semibold">Your journey</h3><button class="link text-xs" data-action="journey">Edit</button></div>
+    <div class="mt-2 flex items-end gap-4">
+      <div><p class="text-3xl font-extrabold tabular-nums ${lost > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''}">${lost > 0 ? '−' : '+'}${fmt(round1(Math.abs(lost)))} kg</p>
+        <p class="text-xs muted">since ${parseISO(j.date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })} · ${fmt(round1((Math.abs(lost) / j.kg) * 100))}% of your starting weight</p></div>
+      <div class="ml-auto text-right"><p class="text-sm"><span class="muted">${fmt(j.kg)} →</span> <b class="tabular-nums">${fmt(round1(now))} kg</b></p></div>
+    </div>
+    ${eta ? `<p class="mt-3 text-sm">${eta}</p>` : ''}
+    <div class="mt-3 flex flex-wrap gap-2">${done.slice(-3).map((x) => chip(x, true)).join('')}${next.map((x) => chip(x, false)).join('')}</div>
+    ${done.length > 3 ? `<p class="mt-1 text-xs muted">${done.length} milestones passed so far.</p>` : ''}
+    ${series.length > 1 ? `<div class="mt-3">${weightChart(series)}</div>` : ''}
+  </section>`;
+}
+
+function journeyModal() {
+  const j = state.body.journey || {};
+  return `${modalHead('Where you started')}
+    <form id="journey-form" class="space-y-3">
+      <p class="text-sm muted">Your heaviest or starting weight, before this app. It’s added to your weight history so charts show the whole journey.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block"><span class="label">Starting weight (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="kg" value="${j.kg ?? ''}" required></label>
+        <label class="block"><span class="label">Roughly when</span><input class="input" type="date" name="date" value="${j.date ?? ''}" max="${todayISO()}" required></label>
+      </div>
+      <label class="block"><span class="label">Goal weight (kg)</span><input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" name="goal" value="${j.goal ?? state.programme?.goalKg ?? ''}" placeholder="optional"></label>
+      <p class="text-xs muted">Got other old weigh-ins (from another app or your notes)? Add them in Food → Weight: go back to that day with ‹ and log it.</p>
+      <button type="submit" class="btn-primary w-full">Save</button>
+    </form>`;
+}
+
+// ----- Muscle trend (12 weeks) -----
+function muscleTrendCard() {
+  const thisWeek = weekStart(todayISO());
+  const weeks = Array.from({ length: 12 }, (_, k) => addDays(thisWeek, -7 * (11 - k)));
+  const vals = weeks.map((w) => round1(muscleVolume(w).out[statsMuscle].sets));
+  const max = Math.max(SET_TARGET[1] + 4, ...vals);
+  const h = (v) => `${(v / max) * 100}%`;
+  const label = (w, v) => `Week of ${fmtShort(w)}${progWeek(w) ? ` (programme week ${progWeek(w)}${isDeloadWeek(w) ? ', deload' : ''})` : ''}: <b class='text-slate-900 dark:text-slate-100'>${fmt(v)} sets</b>`;
+  return `<section class="card mb-4" data-chart="bars">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="font-semibold">Sets per week: trend</h3>
+      <select class="input w-auto py-1.5 text-sm" data-action="stats-muscle">${MUSCLES.map((m) => `<option ${m === statsMuscle ? 'selected' : ''}>${m}</option>`).join('')}</select>
+    </div>
+    <p class="mt-1 text-sm muted" data-readout>${label(weeks[11], vals[11])}</p>
+    <div class="relative mt-3 h-36 border-b border-slate-200 dark:border-slate-800">
+      <div class="absolute inset-x-0 bg-emerald-500/10" style="bottom:${h(SET_TARGET[0])};height:${h(SET_TARGET[1] - SET_TARGET[0])}"></div>
+      <div class="relative flex h-full items-end gap-1.5">
+        ${weeks.map((w, k) => `<button class="flex h-full flex-1 items-end justify-center" data-action="bar" data-readout="${label(w, vals[k])}" aria-label="Week of ${fmtShort(w)}: ${fmt(vals[k])} sets">
+          <span class="block w-full max-w-[20px] rounded-t-[4px] ${!vals[k] ? 'bg-slate-300 dark:bg-slate-700' : isDeloadWeek(w) ? 'bg-amber-500' : 'bg-indigo-500'} ${w === thisWeek ? 'opacity-60' : ''}" style="height:${vals[k] ? `max(3px, ${h(vals[k])})` : '2px'}"></span>
+        </button>`).join('')}
+      </div>
+    </div>
+    <div class="mt-1 flex gap-1.5 text-center text-[9px] muted">${weeks.map((w, k) => `<span class="flex-1">${k % 3 === 2 ? fmtShort(w) : ''}</span>`).join('')}</div>
+    <p class="mt-2 text-xs muted">Green band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets · amber = programme deload week · faded = this week so far. Expect a step up in Block 2.</p>
+  </section>`;
+}
+
 // ----- Plan tab -----
 function planView() {
   const weekEnd = addDays(planWeek, 6);
@@ -1477,6 +1624,7 @@ function planView() {
 
   let html = `<h2 class="mb-4 text-2xl font-bold">Plan</h2>
   ${programmeCard()}
+  ${balanceCard()}
   <section class="card mb-4">
     <div class="mb-3 flex items-center justify-between">
       <button class="icon-btn text-2xl" data-action="plan-week" data-dir="-1" aria-label="Previous week">‹</button>
@@ -1595,7 +1743,7 @@ function weekStreak() {
 
 function statsView() {
   if (!state.history.length) {
-    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` + nutritionCard() + measuresCard() +
+    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` + journeyCard() + nutritionCard() + measuresCard() +
       emptyState('No workouts yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
   }
   const thisWeek = weekStart(todayISO());
@@ -1618,6 +1766,7 @@ function statsView() {
     ${tile('Volume', fmtKg(weekVolume(thisWeek)), 'kg lifted this week')}
     ${tile('Records', prCount, 'PR sessions, last 30 days')}
   </section>`;
+  html += journeyCard();
   html += recapHtml(statsWeek, false) || '';
   html += nutritionCard();
 
@@ -1664,6 +1813,8 @@ function statsView() {
     </div>
     <div class="mt-1 flex gap-2 text-center text-[10px] muted">${weeks.map((w) => `<span class="flex-1">${fmtShort(w).replace(' ', ' ')}</span>`).join('')}</div>
   </section>`;
+
+  html += muscleTrendCard();
 
   // Per-exercise progress
   const logged = state.exercises.filter((e) => sessionsFor(e.id).length);
@@ -2100,7 +2251,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -2711,6 +2862,48 @@ function ideasCard(tot, t) {
   </section>`;
 }
 
+
+// ----- Weekly calorie budget -----
+/**
+ * The week's calories (Mon–Sun) as one budget. Past days that weren't fully
+ * logged (<800 kcal) count as on target. Targets themselves don't change.
+ */
+function weekBudget(date) {
+  const ws = weekStart(date), today = todayISO();
+  let target = 0, eaten = 0, diff = 0, logged = 0, unlogged = 0, left = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(ws, i), t = targetsFor(d).kcal;
+    target += t;
+    if (d < today) {
+      const k = dayTotals(d).kcal;
+      if (k >= 800) { eaten += k; diff += t - k; logged++; } else { eaten += t; unlogged++; }
+    } else if (d === today) eaten += dayTotals(d).kcal;
+    else left++;
+  }
+  return { ws, target, eaten, diff, logged, unlogged, daysLeft: left + (today >= ws && today <= addDays(ws, 6) ? 1 : 0) };
+}
+
+function budgetCard() {
+  if (!state.food.targets || weekStart(foodDate) !== weekStart(todayISO())) return '';
+  const b = weekBudget(foodDate);
+  const pct = Math.min(100, (b.eaten / b.target) * 100);
+  const perDay = b.daysLeft ? Math.round(b.diff / b.daysLeft / 10) * 10 : 0;
+  let msg = '';
+  if (!b.logged) msg = 'Log full days and this shows whether you’re ahead or behind for the week.';
+  else if (Math.abs(b.diff) < 100) msg = 'Right on track for the week so far.';
+  else if (b.diff > 0) msg = `You’re <b>${fmtKg(b.diff)} kcal under</b> so far. That’s room for about <b>+${fmtKg(perDay)} kcal a day</b> for the rest of the week, or save it for the weekend.`;
+  else msg = `You’re <b>${fmtKg(-b.diff)} kcal over</b> so far. About <b>${fmtKg(-perDay)} kcal a day</b> less for the rest of the week evens it out. No need to cut harder than that.`;
+  return `<section class="card mb-4">
+    <div class="flex items-baseline justify-between gap-2">
+      <h3 class="font-semibold">This week’s budget</h3>
+      <span class="text-sm tabular-nums"><b>${fmtKg(b.eaten)}</b><span class="muted"> / ${fmtKg(b.target)} kcal</span></span>
+    </div>
+    <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full ${b.diff < -100 ? 'bg-amber-500' : 'bg-indigo-500'}" style="width:${pct}%"></div></div>
+    <p class="mt-2 text-sm">${msg}</p>
+    <p class="mt-1 text-xs muted">Mon–Sun, ${fmtKg(b.target - b.eaten)} kcal left over ${b.daysLeft} day${b.daysLeft === 1 ? '' : 's'}${b.unlogged ? ` · ${b.unlogged} day${b.unlogged === 1 ? '' : 's'} not fully logged, counted as on target` : ''}. Your daily targets don’t change; this is for planning.</p>
+  </section>`;
+}
+
 // ----- Food tab -----
 function foodView() {
   const today = todayISO();
@@ -2735,6 +2928,7 @@ function foodView() {
     <button class="btn-primary mt-3 w-full" data-food="setup">Set up targets</button>
   </section>`;
 
+  if (t) html += budgetCard();
   html += MEALS.map(mealCard).join('');
   html += ideasCard(dayTotals(foodDate), tf);
   html += waterCard() + weightCard();
@@ -3925,6 +4119,7 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'prog-main': modal = { type: 'prog-main' }; renderModal(); return;
+    case 'journey': modal = { type: 'journey' }; renderModal(); return;
     case 'toggle-pdl': {
       const d = state.draft;
       d.pdl = !d.pdl;
@@ -4087,6 +4282,7 @@ document.addEventListener('change', (e) => {
     case 'day-set': setDayPlan(el.dataset.date, el.value || null); render(); break;
     case 'routine-add': if (el.value) routineEdit.exerciseIds.push(el.value); render(); return;
     case 'stats-ex': statsExId = el.value; render(); return;
+    case 'stats-muscle': statsMuscle = el.value; render(); return;
     case 'bar-weight': state.settings.barWeight = Number(el.value); break;
     case 'measure-date': modal.date = el.value || todayISO(); renderModal(); return;
     case 'prog-main-toggle': {
@@ -4133,6 +4329,19 @@ document.addEventListener('submit', (e) => {
       modal = { type: 'prog-review', week };
     }
     saveState(); render();
+    return;
+  }
+  if (e.target.id === 'journey-form') {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const kg = round1(parseFloat(fd.get('kg'))), date = String(fd.get('date')), goal = parseFloat(fd.get('goal'));
+    if (!(kg >= 20 && kg <= 400) || !date) return toast('Enter your starting weight and roughly when');
+    const old = state.body.journey;
+    if (old && old.date !== date && state.food.weights[old.date] === old.kg) delete state.food.weights[old.date];
+    if (state.food.weights[date] === undefined || old?.date === date) state.food.weights[date] = kg;
+    state.body.journey = { kg, date, goal: goal > 0 ? round1(goal) : null };
+    modal = null;
+    saveState(); render(); toast('Journey saved');
     return;
   }
   if (e.target.id === 'measure-form') {

@@ -108,6 +108,16 @@ vs targets, PRs (one per exercise), muscles under 10 sets. Shown on the Workout
 tab on Mon/Tue (owner's rest days; "Hide" snoozes it) and on Stats for the
 selected week.
 
+**Muscle balance** (Plan tab, `balanceCard()`): planned working sets per
+muscle for the Plan week from the schedule (`plannedVolume`, programme
+sets/deloads included), every muscle shown so untrained ones stand out; muscles
+under 10 sets (not Core) get library suggestions (`fillers`, machines first,
+never squats/deadlifts). **Muscle trend** (Stats, `muscleTrendCard`): 12 weeks
+of done sets for one muscle (`statsMuscle`), deload weeks amber.
+**Journey** (Stats, `state.body.journey = {kg, date, goal}`): all-time start
+weight (also written into `food.weights` so charts span it), total lost,
+5 kg milestones, goal ETA from the 4-week trend rate (`rate4w`).
+
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
 exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
@@ -130,6 +140,10 @@ weight). **Protein ideas** card on the Food tab (today, when ≥15 g protein
 and ≥100 kcal left): foods eaten in the last 4 weeks (as usually logged),
 favourites and saved meals that fit the calories left, sorted by protein per
 kcal; one tap adds them to the meal for the time of day.
+**Weekly budget** (Food tab, `weekBudget`): Mon–Sun sum of `targetsFor()`
+vs eaten; past days under 800 kcal count as on target; shows kcal under/over
+so far and the per-day adjustment for the rest of the week. Info only: daily
+targets never change.
 
 **Food data:** `food-data/uk-products.json` (~30k most-scanned UK products from
 the Open Food Facts export) and `food-data/uk-cofid.json` (gov.uk CoFID 2021)
