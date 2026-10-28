@@ -55,6 +55,17 @@ Tabs: Workout, Food, Plan, Stats, Exercises, History.
   bodyweight "add weight" 2.5 kg, "reps only" no step, "assisted" machine 3/4 kg
   with assistance going *down*. Use `harder(ex,a,b)` / `loadLabel(ex,w)` for
   anything load-related.
+- Sets can be marked warm-up (`s.warm`, tap the set number → "W"); they're
+  ignored by `evaluate()`. Use it for "finding my weight" feeler sets.
+- Per-set RPE (`s.rpe`, replaced the old per-exercise `h.rpe`, still read as a
+  fallback). `predict()` uses the RPE of the last working set from the last
+  session of that exercise (any routine): reps + (10 − RPE) ≥ top of range + 3
+  → "calibrate" up from est. 1RM (bottom of range at ~2 left) if that's more
+  than one step; reps + RIR < bottom of range → calibrate down; RPE ≤ 7.5 →
+  aim +2 reps; RPE ≥ 9.5 → note that +1 is plenty. No RPE → plain double
+  progression. `rebase()` uses RPE-aware e1RM (`e1rmRpe`).
+- Rest timer starts automatically on ✓ or when a reps box is committed
+  (`change` event); 60 s after a warm-up, none mid-superset (`restAfterSet`).
 - Plateau: 3 sessions in a row without progress → offer ~10% deload (more
   assistance for assisted). Logged deloads reset the count.
 

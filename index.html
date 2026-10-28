@@ -42,8 +42,9 @@
       .chip { @apply rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
       .chip[data-level="1"] { @apply border-indigo-600 bg-indigo-600 text-white dark:text-white; }
       .chip[data-level="0.5"] { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
-      .set-row { @apply grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] items-center gap-2 rounded-xl px-1 py-1 transition; }
+      .set-row { @apply grid grid-cols-[1.75rem_1fr_1fr_3.25rem_2.75rem_2rem] items-center gap-1.5 rounded-xl px-1 py-1 transition; }
       .set-row.done { @apply bg-emerald-500/10; }
+      .set-row.warm { @apply bg-amber-500/10; }
       .check { @apply inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-lg font-bold text-slate-400 transition active:scale-95 dark:border-slate-700 dark:text-slate-500; }
       .set-row.done .check { @apply border-emerald-500 bg-emerald-500 text-white; }
       .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
@@ -314,16 +315,22 @@ function cleanSets(sets, fallbackWeight = NaN) {
   return sets
     .map((s) => {
       const w = s.weight === '' || s.weight == null ? fallbackWeight : parseFloat(s.weight);
-      return { weight: round2(w), reps: parseInt(s.reps, 10) };
+      const out = { weight: round2(w), reps: parseInt(s.reps, 10) };
+      const rpe = parseFloat(s.rpe);
+      if (rpe >= 5 && rpe <= 10) out.rpe = rpe;
+      if (s.warm) out.warm = true;
+      return out;
     })
     .filter((s) => Number.isFinite(s.weight) && s.weight >= 0 && s.reps > 0);
 }
 
 /**
- * Evaluate one session. Working sets = the sets done at the heaviest weight
- * (lighter sets are treated as warm-ups).
+ * Evaluate one session. Sets marked as warm-ups are ignored; working sets =
+ * the remaining sets done at the heaviest weight (lighter ones count as
+ * warm-ups too).
  */
-function evaluate(ex, sets) {
+function evaluate(ex, allSets) {
+  const sets = allSets.some((s) => !s.warm) ? allSets.filter((s) => !s.warm) : allSets;
   const loads = sets.map((s) => s.weight);
   const top = isAssisted(ex) ? Math.min(...loads) : Math.max(...loads); // hardest load
   const working = sets.filter((s) => s.weight === top);
@@ -360,6 +367,25 @@ function predict(ex) {
   }
 
   const ev = evaluate(ex, last.sets);
+  const { rpe, set: rpeSet } = lastRpe(last, ev);
+
+  // Way off (e.g. still finding a starting weight): re-pick the weight from
+  // the reps you had left, aiming for the bottom of the range with ~2 left.
+  if (rpe && !isBW(ex) && ev.top > 0) {
+    const capable = rpeSet.reps + (10 - rpe);
+    const ideal = floorToStep(ev.top * (1 + capable / 30) / (1 + (ex.repMin + 2) / 30), ex);
+    const tooLight = capable >= ex.repMax + 3 && ideal > ev.top + step; // more than one normal step up
+    const tooHeavy = capable < ex.repMin && ideal < ev.top;
+    if (tooLight || tooHeavy) {
+      const reps = Array(ex.sets).fill(ex.repMin);
+      return {
+        rule: 'calibrate', weight: ideal, reps, total: sum(reps), last, ev,
+        reason: tooLight
+          ? `Last time ${rpeSet.reps} reps at ${loadLabel(ex, ev.top)} was RPE ${fmt(rpe)}, so you had about ${10 - rpe} more in you. Jumping to ${loadLabel(ex, ideal)} for ${ex.repMin}–${ex.repMax} reps.`
+          : `Last time you got ${rpeSet.reps} reps at RPE ${fmt(rpe)}, below the ${ex.repMin}–${ex.repMax} range. Dropping to ${loadLabel(ex, ideal)} so you land in the range.`,
+      };
+    }
+  }
 
   const canStepUp = !repsOnly(ex) && !(isAssisted(ex) && ev.top <= 0);
   if (ev.hitCeiling && canStepUp) {
@@ -367,7 +393,7 @@ function predict(ex) {
     const weight = isAssisted(ex) ? round2(Math.max(0, roundToStep(ev.top, ex) - step)) : round2(roundToStep(ev.top, ex) + step);
     return {
       rule: 'up', weight, reps, total: sum(reps), last, ev,
-      reason: `You hit ${ex.repMax} reps on all ${ev.working.length} working sets at ${loadLabel(ex, ev.top)}. ${isAssisted(ex) ? `Assistance −${fmt(step)} kg` : `Weight +${fmt(step)} kg`}, reps reset to ${ex.repMin}.`,
+      reason: `You hit ${ex.repMax} reps on all ${ev.working.length} working sets at ${loadLabel(ex, ev.top)}. ${isAssisted(ex) ? `Assistance −${fmt(step)} kg` : `Weight +${fmt(step)} kg`}, reps reset to ${ex.repMin}.${rpe >= 9.5 ? ` It was a grind (RPE ${fmt(rpe)}), so expect the new load to feel heavy at first.` : ''}`,
     };
   }
 
@@ -381,12 +407,20 @@ function predict(ex) {
     if (idx === -1) idx = reps.length - 1;
     reps[idx] += 1;
   }
-  const total = Math.max(sum(reps), ev.total + 1);
+  const easy = rpe && rpe <= 7.5;
+  if (easy) { // felt easy: aim for two more reps instead of one
+    let idx = -1;
+    reps.forEach((r, i) => { if (r < ex.repMax && (idx === -1 || r < reps[idx])) idx = i; });
+    if (idx !== -1) reps[idx] += 1;
+  }
+  const total = Math.max(sum(reps), ev.total + (easy ? 2 : 1));
 
   let reason = `Not every set reached ${ex.repMax}. Keep ${loadLabel(ex, ev.top)} and beat last session's ${ev.total} total reps (aim for ${total}+).`;
   if (ev.hitCeiling && repsOnly(ex)) reason = `You hit the top of the range on every set. Keep adding reps (aim for ${total}+), or move to a harder variation.`;
   else if (ev.hitCeiling) reason = `You’re doing it with no assistance. Keep adding reps (aim for ${total}+), or switch this exercise to “Add weight”.`;
   else if (!ev.enoughSets && !repsOnly(ex)) reason += ` Complete all ${ex.sets} working sets to unlock ${isAssisted(ex) ? 'less assistance' : 'a weight increase'}.`;
+  if (easy && !ev.hitCeiling) reason += ` It felt easy last time (RPE ${fmt(rpe)}), so aim for 2 more reps.`;
+  else if (rpe >= 9.5 && !ev.hitCeiling) reason += ` Last time was close to your limit (RPE ${fmt(rpe)}): one more rep is plenty.`;
   const belowRange = ev.reps.every((r) => r < ex.repMin);
 
   return { rule: 'reps', weight: ev.top, reps, total, last, ev, reason, belowRange };
@@ -413,11 +447,23 @@ function plateau(ex) {
   return { at, weight };
 }
 
+/** RPE of the last working set that has one (or the old per-exercise RPE). */
+function lastRpe(h, ev) {
+  const set = [...ev.working].reverse().find((x) => x.rpe);
+  if (set) return { rpe: set.rpe, set };
+  const old = parseFloat(h.rpe);
+  return old >= 5 ? { rpe: old, set: ev.working[ev.working.length - 1] } : { rpe: null, set: null };
+}
+
+const floorToStep = (w, ex) => { const st = stepFor(ex); return round2(Math.max(0, st ? Math.floor(w / st) * st : w)); };
+
 // ---------- Records ------------------------------------------------------
 
 /** Estimated one-rep max (Epley). */
 const e1rm = (s) => (s.reps === 1 ? s.weight : s.weight * (1 + s.reps / 30));
 const bestE1 = (sets) => Math.max(0, ...sets.map(e1rm));
+/** Estimated 1RM counting the reps left in the tank when an RPE was logged. */
+const e1rmRpe = (s) => s.weight * (1 + (s.reps + (s.rpe ? 10 - s.rpe : 0)) / 30);
 const topWeight = (sets) => Math.max(0, ...sets.map((s) => s.weight));
 const tonnage = (sets) => sum(sets.map((s) => s.weight * s.reps));
 
@@ -601,12 +647,24 @@ function startRoutine(id, date = todayISO()) {
 let rest = null; // { end, total, label, alerted }
 let audioCtx = null;
 
-function startRest(seconds, label) {
+/** Rest after a finished set: straight on inside a superset, shorter after a warm-up. */
+function restAfterSet(ei, si) {
+  const entry = state.draft?.entries[ei];
+  if (!entry) return;
+  const key = `${ei}-${si}`;
+  if (rest && rest.key === key) return; // already resting after this set
+  const ex = progEx(exById(entry.exerciseId)), s = entry.sets[si];
+  const nextEx = entry.ss && state.draft.entries[ei + 1] && exById(state.draft.entries[ei + 1].exerciseId);
+  if (nextEx && !s.warm) return toast(`Superset: straight on to ${nextEx.name}`); // rest after the last exercise of the superset
+  startRest(s.warm ? 60 : ex.rest || 90, ex.name, key);
+}
+
+function startRest(seconds, label, key = null) {
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     audioCtx.resume?.();
   } catch (e) { /* audio is optional */ }
-  rest = { end: Date.now() + seconds * 1000, total: seconds, label, alerted: false };
+  rest = { end: Date.now() + seconds * 1000, total: seconds, label, alerted: false, key };
   tickRest();
 }
 
@@ -651,6 +709,7 @@ const RULE_BADGE = {
   up:    ['Weight up',     'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'],
   reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
   deload: ['Deload week', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
+  calibrate: ['Weight adjusted', 'bg-sky-500/15 text-sky-700 dark:text-sky-300'],
   block: ['New block', 'bg-violet-500/15 text-violet-700 dark:text-violet-300'],
   test:  ['Rep-max test', 'bg-rose-500/15 text-rose-700 dark:text-rose-300'],
 };
@@ -809,6 +868,9 @@ function todayView() {
 }
 
 function setText(ex, s) {
+  return (s.warm ? 'W ' : '') + setLoadText(ex, s) + (s.rpe ? ` @${fmt(s.rpe)}` : '');
+}
+function setLoadText(ex, s) {
   if (ex && repsOnly(ex)) return `${s.reps}`;
   if (ex && isBW(ex) && !isAssisted(ex)) return s.weight > 0 ? `+${fmt(s.weight)}×${s.reps}` : `BW×${s.reps}`;
   return `${fmt(s.weight)}×${s.reps}`;
@@ -845,7 +907,6 @@ function entryCard(entry, i) {
   const ex = progEx(raw);
   const p = entryTarget(entry);
   const stall = ['deload', 'test', 'block'].includes(p.rule) ? null : plateau(ex);
-  const rpeOptions = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
 
   let stallHtml = '';
   if (stall && !entry.deload) {
@@ -896,12 +957,13 @@ function entryCard(entry, i) {
     ${isBW(ex) ? '' : `<button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>`}
     <div id="warm-${i}">${warmupHtml(entry, ex, p, stall)}</div>
 
-    <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_2.75rem_2.25rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
-      <span class="text-center">Set</span><span class="text-center">${repsOnly(ex) ? '' : isAssisted(ex) ? 'Assist kg' : isBW(ex) ? '+ kg' : 'kg'}</span><span class="text-center">Reps</span><span></span><span></span>
+    <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_3.25rem_2.75rem_2rem] gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
+      <span class="text-center">Set</span><span class="text-center">${repsOnly(ex) ? '' : isAssisted(ex) ? 'Assist kg' : isBW(ex) ? '+ kg' : 'kg'}</span><span class="text-center">Reps</span><span class="text-center">RPE</span><span></span><span></span>
     </div>
     <div class="mt-1 space-y-1">
       ${entry.sets.map((s, j) => setRow(i, j, s, p, ex)).join('')}
     </div>
+    <p class="mt-1 px-1 text-[11px] muted">Tap a set number to mark it <b class="text-amber-600 dark:text-amber-400">W</b> (warm-up or finding your weight) so it’s ignored. RPE: 10 = nothing left, 9 = 1 rep left, 8 = 2 left, 7 = 3 left.</p>
 
     <div class="mt-3 flex items-center justify-between gap-3">
       <div class="flex shrink-0 gap-4">
@@ -912,10 +974,7 @@ function entryCard(entry, i) {
       <p class="text-right text-sm" id="progress-${i}">${progressHtml(entry, ex, p)}</p>
     </div>
 
-    <div class="mt-3 grid grid-cols-[6rem_1fr] gap-2">
-      <select class="input py-2 text-sm" data-entry-field="rpe" data-e="${i}" aria-label="RPE (effort 1–10)">
-        ${rpeOptions.map((v) => `<option value="${v}" ${String(entry.rpe) === v ? 'selected' : ''}>${v ? `RPE ${v}` : 'RPE'}</option>`).join('')}
-      </select>
+    <div class="mt-3">
       <input class="input py-2 text-sm" data-entry-field="note" data-e="${i}" maxlength="140" placeholder="Note (seat height, grip, how it felt…)" value="${esc(entry.note)}">
     </div>
   </article>`;
@@ -951,15 +1010,19 @@ function targetReps(p, ex, j) {
 
 function setRow(i, j, s, p, ex) {
   const done = parseInt(s.reps, 10) > 0;
-  return `<div class="set-row ${done ? 'done' : ''}" id="row-${i}-${j}">
-    <span class="text-center font-bold muted">${j + 1}</span>
+  const rpeOpts = ['6', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
+  return `<div class="set-row ${s.warm ? 'warm' : done ? 'done' : ''}" id="row-${i}-${j}">
+    <button class="h-9 text-center font-bold ${s.warm ? 'text-amber-600 dark:text-amber-400' : 'muted'}" data-action="toggle-warm" data-e="${i}" data-s="${j}" aria-label="Set ${j + 1}: ${s.warm ? 'warm-up (tap for working set)' : 'working set (tap to mark as warm-up)'}">${s.warm ? 'W' : j + 1}</button>
     ${repsOnly(ex) ? '<span class="input text-center text-sm font-semibold muted" aria-label="Bodyweight">BW</span>'
       : `<input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="decimal" step="any" min="0"
       data-field="weight" data-e="${i}" data-s="${j}" value="${esc(s.weight)}" placeholder="${fmt(p.weight)}" aria-label="Set ${j + 1} ${isAssisted(ex) ? 'assistance' : 'weight'}">`}
     <input class="input text-center text-lg font-semibold tabular-nums" type="number" inputmode="numeric" step="1" min="0"
-      data-field="reps" data-e="${i}" data-s="${j}" value="${esc(s.reps)}" placeholder="${targetReps(p, ex, j)}" aria-label="Set ${j + 1} reps">
+      data-field="reps" data-e="${i}" data-s="${j}" value="${esc(s.reps)}" placeholder="${s.warm ? '' : targetReps(p, ex, j)}" aria-label="Set ${j + 1} reps">
+    <select class="input appearance-none px-0 text-center text-sm font-semibold tabular-nums" data-field="rpe" data-e="${i}" data-s="${j}" aria-label="Set ${j + 1} RPE">
+      <option value="">${s.warm ? '–' : 'RPE'}</option>${rpeOpts.map((v) => `<option value="${v}" ${String(s.rpe ?? '') === v ? 'selected' : ''}>${v}</option>`).join('')}
+    </select>
     <button class="check" data-action="fill-set" data-e="${i}" data-s="${j}" aria-label="Mark set ${j + 1} done">✓</button>
-    <button class="icon-btn h-9 w-9" data-action="remove-set" data-e="${i}" data-s="${j}" aria-label="Remove set ${j + 1}">
+    <button class="icon-btn h-8 w-8" data-action="remove-set" data-e="${i}" data-s="${j}" aria-label="Remove set ${j + 1}">
       <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
     </button>
   </div>`;
@@ -1039,10 +1102,9 @@ function rebase(e, date) {
   if (lastWeek && blockOf(lastWeek) === blockOf(w)) return null;
   const before = progEx(exById(e.id), last.date);
   if (before.repMin === e.repMin && before.repMax === e.repMax) return null;
-  const e1 = bestE1(last.sets), step = stepFor(e);
+  const e1 = Math.max(0, ...last.sets.filter((x) => !x.warm).map(e1rmRpe));
   if (!e1) return null;
-  const raw = e1 / (1 + (e.repMin + 2) / 30);
-  const weight = round2(Math.max(0, step ? Math.floor(raw / step) * step : raw));
+  const weight = floorToStep(e1 / (1 + (e.repMin + 2) / 30), e);
   const reps = Array(e.sets).fill(e.repMin);
   return {
     rule: 'block', weight, reps, total: sum(reps), last,
@@ -3798,9 +3860,7 @@ document.addEventListener('click', (e) => {
       else {
         if (s.weight === '') s.weight = String(p.weight);
         s.reps = String(targetReps(p, ex, si));
-        const nextEx = entry.ss && state.draft.entries[ei + 1] && exById(state.draft.entries[ei + 1].exerciseId);
-        if (nextEx) toast(`Superset: straight on to ${nextEx.name}`); // rest after the last exercise of the superset
-        else startRest(ex.rest || 90, ex.name);
+        restAfterSet(ei, si);
       }
       break;
     }
@@ -3856,6 +3916,7 @@ document.addEventListener('click', (e) => {
       entry.sets.forEach((s) => (s.weight = String(p.weight)));
       break;
     }
+    case 'toggle-warm': entry.sets[si].warm = !entry.sets[si].warm; break;
     case 'toggle-test': {
       if (entry.sets.some((x) => x.reps !== '') && !confirm('Clear the sets you’ve logged for this exercise?')) return;
       entry.test = !entry.test;
@@ -4009,6 +4070,8 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
   const el = e.target;
+  // Typing reps and moving on (Done / next box) counts as finishing the set.
+  if (el.dataset.field === 'reps' && parseInt(el.value, 10) > 0 && state.draft) { restAfterSet(Number(el.dataset.e), Number(el.dataset.s)); return; }
   if (el.dataset.libPick) {
     const idx = Number(el.dataset.libPick);
     if (el.checked) lib.picked.set(idx, ''); else lib.picked.delete(idx);
