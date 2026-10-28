@@ -501,7 +501,7 @@ function seedState() {
 
 const emptyFood = () => ({
   profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [],
-  prefs: { trainingOn: false, trainingGap: 200, water: 2500 },
+  prefs: { trainingOn: false, trainingGap: 200, water: 2500, dietBreak: false },
 });
 
 /** Accepts saved data from any version of the app and fills in new fields. */
@@ -731,6 +731,7 @@ function todayView() {
     }
     if (r && !doneToday) {
       html += `<h2 class="mt-1 text-2xl font-bold">${esc(r.name)}</h2>
+        ${minutesHtml(r, today, dl)}
         <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
           ${r.exerciseIds.map(exById).filter(Boolean).map((ex) => {
             const p = targetFor(ex, dl);
@@ -746,6 +747,8 @@ function todayView() {
         <p class="mt-1 text-sm muted">${state.routines.length ? 'Nothing scheduled. Recover, or start a workout below.' : 'Create routines and a weekly schedule in the Plan tab.'}</p>`;
     }
     html += `</section>`;
+    const lastWeek = addDays(weekStart(today), -7);
+    if (dow(today) <= 1 && !snoozed(`recap-${lastWeek}`)) html += recapHtml(lastWeek, true); // Monday & Tuesday
 
     const others = state.routines.filter((x) => doneToday || x.id !== r?.id);
     if (others.length) {
@@ -1139,6 +1142,7 @@ function progBanner(date) {
   return `<button class="mb-4 block w-full rounded-2xl border p-3 text-left ${easy ? 'border-amber-500/40 bg-amber-500/10' : 'border-indigo-500/30 bg-indigo-500/10'}" data-action="nav" data-view="plan">
     <p class="text-xs font-bold uppercase tracking-wider ${easy ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-600 dark:text-indigo-300'}">Week ${w} of ${PROG_WEEKS} · ${weekTitle(w)}</p>
     <p class="mt-0.5 text-sm text-slate-700 dark:text-slate-300">${weekTip(w)}</p>
+    ${dietBreakOn(date) && state.food.targets ? `<p class="mt-1 text-sm font-semibold text-amber-800 dark:text-amber-300">Diet break: eat at maintenance this week (${fmtKg(baseTargets(date).kcal)} kcal).</p>` : ''}
   </button>`;
 }
 
@@ -1328,6 +1332,81 @@ function progReviewModal() {
   return html;
 }
 
+// ----- Session length & weekly recap -----
+/**
+ * Rough minutes for a routine on a date: each set ~3 s a rep + 10 s, the rest
+ * timer after every set (almost none inside a superset), a minute to set up
+ * each exercise and 5 minutes of general warm-up.
+ */
+function sessionMinutes(r, date, deload = isDeloadWeek(date)) {
+  let secs = 5 * 60;
+  r.exerciseIds.map(exById).filter(Boolean).forEach((ex) => {
+    const e = progEx(ex, date), t = targetFor(ex, deload, date);
+    const rest = r.links?.[ex.id] ? 15 : e.rest || 90;
+    secs += 60 + sum(t.reps.map((n) => n * 3 + 10)) + t.reps.length * rest;
+  });
+  return Math.round(secs / 60);
+}
+
+function minutesHtml(r, date, deload) {
+  const m = sessionMinutes(r, date, deload);
+  const sets = sum(r.exerciseIds.map(exById).filter(Boolean).map((ex) => targetFor(ex, deload, date).reps.length));
+  return `<p class="mt-1 text-sm muted">≈ <b class="text-slate-900 dark:text-slate-100">${m} min</b> · ${sets} sets</p>
+    ${m > 60 ? `<p class="mt-1 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">Over your hour. Shorter rests on isolation exercises (60–90 s) or pairing two into a superset will bring it down.</p>` : ''}`;
+}
+
+/** Summary of one week (Mon start): sessions, sets, volume, PRs, muscles, food and weight. */
+function weekRecap(start) {
+  const end = addDays(start, 6), prevStart = addDays(start, -7);
+  const inWeek = (h, a, b) => h.date >= a && h.date <= b;
+  const hs = state.history.filter((h) => inWeek(h, start, end));
+  const prevHs = state.history.filter((h) => inWeek(h, prevStart, addDays(start, -1)));
+  const workSets = (list) => sum(list.map((h) => { const ex = exById(h.exerciseId); return ex ? evaluate(ex, h.sets).working.length : 0; }));
+  const days = DAYS.map((_, i) => addDays(start, i));
+  const prMap = new Map(); // one line per exercise: its latest record this week
+  [...hs].sort((a, b) => (a.date === b.date ? a.ts - b.ts : a.date < b.date ? -1 : 1)).forEach((h) => {
+    const items = prsFor(h), name = exById(h.exerciseId)?.name;
+    if (name && items.length) prMap.set(h.exerciseId, { name, items });
+  });
+  const prs = [...prMap.values()];
+  const { out } = muscleVolume(start);
+  const low = MUSCLES.filter((m) => out[m].sets > 0 && out[m].sets < SET_TARGET[0]);
+  const foodDays = days.filter((d) => dayTotals(d).kcal >= 800);
+  const avg = (k) => (foodDays.length ? Math.round(sum(foodDays.map((d) => dayTotals(d)[k])) / foodDays.length) : null);
+  const avgTarget = (k) => (foodDays.length && state.food.targets ? Math.round(sum(foodDays.map((d) => targetsFor(d)[k])) / foodDays.length) : null);
+  const w0 = trendAt(addDays(start, -1), null), w1 = trendAt(end, null);
+  return {
+    start, end, week: progWeek(start),
+    done: new Set(hs.map((h) => h.date)).size, planned: days.filter((d) => plannedRoutine(d)).length,
+    sets: workSets(hs), prevSets: workSets(prevHs),
+    kg: sum(hs.map(kgLifted)), prevKg: sum(prevHs.map(kgLifted)),
+    prs, low, foodDays: foodDays.length, kcal: avg('kcal'), kcalT: avgTarget('kcal'), protein: avg('protein'), proteinT: avgTarget('protein'),
+    weight: w1, weightChange: w0 !== null && w1 !== null && Object.keys(state.food.weights).some((d) => d >= start && d <= end) ? w1 - w0 : null,
+  };
+}
+
+function recapHtml(start, dismissible) {
+  const r = weekRecap(start);
+  if (!r.done && !r.foodDays) return '';
+  const delta = (a, b, unit = '') => (b ? `<span class="${a >= b ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">${a >= b ? '▲' : '▼'} ${fmtKg(Math.abs(a - b))}${unit}</span> vs week before` : 'first week logged');
+  const tile = (label, value, sub) => `<div class="rounded-xl bg-slate-100 p-2 dark:bg-slate-800/60"><p class="text-[11px] font-semibold uppercase tracking-wide muted">${label}</p><p class="text-lg font-bold tabular-nums">${value}</p><p class="text-[11px] muted">${sub}</p></div>`;
+  return `<section class="card mb-4">
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">${dismissible ? 'Last week' : 'Week'} · ${fmtShort(r.start)} – ${fmtShort(r.end)}${r.week ? ` · programme week ${r.week}` : ''}</p>
+      ${dismissible ? `<button class="link text-xs" data-action="snooze" data-key="recap-${start}" data-days="14">Hide</button>` : ''}
+    </div>
+    <div class="mt-2 grid grid-cols-2 gap-2">
+      ${tile('Sessions', `${r.done}${r.planned ? `<span class="text-sm muted"> / ${r.planned}</span>` : ''}`, r.planned ? (r.done >= r.planned ? 'all done 💪' : `${r.planned - r.done} missed`) : 'workouts')}
+      ${tile('Working sets', r.sets, delta(r.sets, r.prevSets))}
+      ${tile('Kg lifted', fmtKg(r.kg), delta(r.kg, r.prevKg))}
+      ${tile('Weight trend', r.weight !== null ? `${fmt(round1(r.weight))} kg` : '—', r.weightChange !== null ? `${r.weightChange > 0 ? '+' : r.weightChange < 0 ? '−' : ''}${fmt(Math.abs(round2(r.weightChange)))} kg this week` : 'no weigh-ins')}
+    </div>
+    ${r.kcal !== null ? `<p class="mt-3 text-sm"><span class="muted">Food (${r.foodDays} logged day${r.foodDays === 1 ? '' : 's'}):</span> avg <b>${fmtKg(r.kcal)}</b>${r.kcalT ? `<span class="muted"> / ${fmtKg(r.kcalT)}</span>` : ''} kcal · protein <b>${r.protein}</b>${r.proteinT ? `<span class="muted"> / ${r.proteinT}</span>` : ''} g</p>` : ''}
+    ${r.prs.length ? `<p class="mt-2 text-sm"><span class="font-semibold text-amber-700 dark:text-amber-300">🏆 ${r.prs.length} PR${r.prs.length === 1 ? '' : 's'}:</span> ${r.prs.slice(0, 5).map((x) => `${esc(x.name)} (${x.items.join(', ')})`).join(' · ')}</p>` : ''}
+    ${r.low.length && !(r.week && isDeloadWeek(start)) ? `<p class="mt-2 text-sm muted">Under ${SET_TARGET[0]} sets: ${r.low.join(', ')}</p>` : ''}
+  </section>`;
+}
+
 // ----- Plan tab -----
 function planView() {
   const weekEnd = addDays(planWeek, 6);
@@ -1377,7 +1456,7 @@ function planView() {
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
           <h4 class="truncate font-bold">${esc(r.name)}</h4>
-          <p class="text-xs muted">${names.length} exercise${names.length === 1 ? '' : 's'}${days.length ? ` · ${days.join(', ')}` : ' · not scheduled'}</p>
+          <p class="text-xs muted">${names.length} exercise${names.length === 1 ? '' : 's'}${days.length ? ` · ${days.join(', ')}` : ' · not scheduled'}${names.length ? ` · ≈ ${sessionMinutes(r, addDays(planWeek, Math.max(0, DAYS.findIndex((_, i) => state.schedule.weekly[i] === r.id))))} min` : ''}</p>
         </div>
         <div class="-mr-2 -mt-1 flex">
           <button class="icon-btn" data-action="edit-routine" data-id="${r.id}" aria-label="Edit ${esc(r.name)}">${ICON_EDIT}</button>
@@ -1477,6 +1556,7 @@ function statsView() {
     ${tile('Volume', fmtKg(weekVolume(thisWeek)), 'kg lifted this week')}
     ${tile('Records', prCount, 'PR sessions, last 30 days')}
   </section>`;
+  html += recapHtml(statsWeek, false) || '';
   html += nutritionCard();
 
   // Weekly sets per muscle
@@ -2455,6 +2535,8 @@ function checkinEstimate() {
 }
 
 function checkinDue() {
+  // A maintenance week (and the water weight it brings back) would skew the estimate.
+  if (dietBreakOn(todayISO()) || dietBreakOn(addDays(todayISO(), -7))) return null;
   const last = state.food.checkins[state.food.checkins.length - 1];
   return last && daysBetween(last.date, todayISO()) < 7 ? null : checkinEstimate();
 }
@@ -2482,15 +2564,89 @@ function trainingShift(gap, n) {
   return { training: Math.round((gap * (7 - n)) / 7), rest: -Math.round((gap * n) / 7) };
 }
 
+const dietBreakOn = (date) => !!state.food.prefs.dietBreak && isDeloadWeek(date);
+
+/** Maintenance calories: the latest check-in estimate (last 5 weeks), else the formula. */
+function maintenanceKcal() {
+  const t = state.food.targets, p = state.food.profile;
+  const c = [...state.food.checkins].reverse().find((x) => x.tdee && daysBetween(x.date, todayISO()) <= 35);
+  const m = c ? c.tdee : p ? calcTargets({ ...p, goal: 'maintain' }).kcal : null;
+  if (!m || !t) return null;
+  return Math.round(Math.min(m, t.kcal + 700) / 10) * 10; // sanity cap
+}
+
+/** Daily targets with a diet break applied: deload weeks go up to maintenance, as carbs. */
+function baseTargets(date) {
+  const t = state.food.targets, m = dietBreakOn(date) && maintenanceKcal();
+  if (!m || m <= t.kcal) return { ...t, dietBreak: false };
+  return { ...t, kcal: m, carbs: t.carbs + Math.round((m - t.kcal) / 4), ...fixedTargets(m), dietBreak: true, breakExtra: m - t.kcal };
+}
+
 /** Targets for a date: calories (as carbs) shift from rest days to training days; the weekly total is unchanged. */
 function targetsFor(date) {
-  const t = state.food.targets;
-  if (!t) return null;
+  if (!state.food.targets) return null;
+  const t = baseTargets(date);
   const n = trainingDaysPerWeek(), pr = state.food.prefs;
   if (!pr.trainingOn || n === 0 || n === 7) return { ...t, dayType: null, dayDelta: 0 };
   const training = !!plannedRoutine(date) || state.history.some((h) => h.date === date);
   const d = trainingShift(pr.trainingGap, n)[training ? 'training' : 'rest'];
   return { ...t, kcal: t.kcal + d, carbs: Math.max(0, t.carbs + Math.round(d / 4)), dayType: training ? 'training' : 'rest', dayDelta: d };
+}
+
+
+// ----- "What's left today" ideas -----
+const mealNow = () => { const h = new Date().getHours(); return h < 11 ? 'breakfast' : h < 15 ? 'lunch' : h < 20 ? 'dinner' : 'snacks'; };
+
+/**
+ * Things you've eaten before (last 4 weeks, as you usually have them),
+ * favourites and saved meals that fit the calories left, highest protein
+ * per calorie first.
+ */
+function proteinIdeas(kcalLeft, today) {
+  const seen = new Set(), out = [];
+  const add = (key, name, sub, n, item) => {
+    if (seen.has(key) || !(n.protein >= 8) || n.kcal > kcalLeft + 50 || n.kcal <= 0) return;
+    seen.add(key);
+    out.push({ key, name, sub, n, item, score: n.protein / n.kcal });
+  };
+  const eatenToday = new Set(dayEntries(today).map((e) => e.foodId || e.name));
+  Object.keys(state.food.log).filter((d) => d < today && d >= addDays(today, -28)).sort().reverse()
+    .forEach((d) => dayEntries(d).forEach((e) => {
+      const key = e.foodId || `q:${e.name}`;
+      if (!eatenToday.has(e.foodId || e.name)) add(key, e.name, e.foodId ? amountLabel(e) : 'quick add', e.n, { kind: 'entry', e });
+    }));
+  state.food.favs.map(foodById).filter(Boolean).forEach((f) => {
+    const u = (f.portions || [])[0] || { label: 'g', g: 100 };
+    const qty = u.label === 'g' ? 100 : 1, g = u.label === 'g' ? 100 : u.g;
+    add(f.id, f.name, u.label === 'g' ? '100 g' : `1 × ${u.label.replace(/^1 /, '')}`, scaleN(f.n, g), { kind: 'entry', e: { foodId: f.id, name: f.name, qty, unit: u.label, g, n: scaleN(f.n, g) } });
+  });
+  state.food.meals.forEach((m) => {
+    const n = Object.fromEntries(NKEYS.map((k) => [k, round1(sum(m.items.map((i) => i.n[k] || 0)))]));
+    add(`m:${m.id}`, m.name, 'saved meal', n, { kind: 'meal', m });
+  });
+  return out.sort((a, b) => b.score - a.score).slice(0, 4);
+}
+
+let ideaCache = [];
+function ideasCard(tot, t) {
+  const today = todayISO();
+  if (foodDate !== today || !t) return '';
+  const pLeft = Math.round(t.protein - tot.protein), kLeft = Math.round(t.kcal - tot.kcal);
+  if (pLeft < 15 || kLeft < 100) return '';
+  ideaCache = proteinIdeas(kLeft, today);
+  const meal = mealNow();
+  return `<section class="card mb-3">
+    <div class="flex items-baseline justify-between gap-2">
+      <h3 class="font-semibold">Ideas for your protein</h3>
+      <span class="text-sm tabular-nums"><b>${pLeft} g</b><span class="muted"> protein · ${fmtKg(kLeft)} kcal left</span></span>
+    </div>
+    ${ideaCache.length ? `<ul class="mt-1 divide-y divide-slate-200 dark:divide-slate-800">${ideaCache.map((x, k) => `<li class="flex items-center justify-between gap-3 py-2">
+      <span class="min-w-0"><span class="block truncate font-medium">${esc(x.name)}</span>
+        <span class="block truncate text-xs muted">${esc(x.sub)} · <b class="text-slate-700 dark:text-slate-200">${fmt(x.n.protein)} g protein</b> · ${x.n.kcal} kcal</span></span>
+      <button class="btn-ghost shrink-0 px-3 py-1.5 text-sm" data-food="idea" data-k="${k}" data-meal="${meal}">+ ${MEAL_LABEL[meal]}</button>
+    </li>`).join('')}</ul>`
+      : '<p class="mt-1 text-sm muted">Log a few meals (or star favourites) and high-protein ideas that fit your calories will show up here.</p>'}
+  </section>`;
 }
 
 // ----- Food tab -----
@@ -2509,6 +2665,7 @@ function foodView() {
 
   html += checkinCard();
   const tf = targetsFor(foodDate);
+  if (tf?.dietBreak) html += `<p class="-mt-1 mb-2 text-center"><span class="badge bg-amber-500/15 text-amber-700 dark:text-amber-300">Diet break · deload week · +${tf.breakExtra} kcal (maintenance)</span></p>`;
   if (tf?.dayType) html += `<p class="-mt-1 mb-2 text-center"><span class="badge bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">${tf.dayType === 'training' ? 'Training day' : 'Rest day'} · ${tf.dayDelta > 0 ? '+' : ''}${tf.dayDelta} kcal</span></p>`;
   html += t ? foodSummary(dayTotals(foodDate), tf) : `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
     <h3 class="font-semibold">Set your daily targets</h3>
@@ -2517,6 +2674,7 @@ function foodView() {
   </section>`;
 
   html += MEALS.map(mealCard).join('');
+  html += ideasCard(dayTotals(foodDate), tf);
   html += waterCard() + weightCard();
   html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>
   <p class="mt-4 text-center text-[11px] leading-relaxed muted">Product data © <a class="underline" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> contributors (ODbL).
@@ -2960,6 +3118,10 @@ function foodSetupModal() {
           <select class="input py-2" name="trainingGap">${[100, 150, 200, 250, 300, 400].map((v) => `<option value="${v}" ${pr.trainingGap === v ? 'selected' : ''}>${v} kcal</option>`).join('')}</select>
         </label>
         <p class="text-sm" id="tday-preview">${trainingPreview(t.kcal, pr.trainingGap, pr.trainingOn)}</p>
+        <label class="flex items-start justify-between gap-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+          <span><span class="block font-semibold">Diet break in deload weeks</span><span class="text-xs muted">During the programme’s deload weeks (4, 8 and 12) calories go up to maintenance${maintenanceKcal() ? ` (about ${fmtKg(maintenanceKcal())} kcal)` : ''}, as extra carbs. A planned rest from dieting helps recovery and hunger. Expect the scale to jump 0.5–1 kg of water; it drops again within a week or so. Weekly calorie check-ins pause until then.</span></span>
+          <input type="checkbox" name="dietBreak" class="mt-1 h-6 w-6 shrink-0 accent-indigo-600" ${pr.dietBreak ? 'checked' : ''}>
+        </label>
         <label class="grid grid-cols-[1fr_8rem] items-center gap-3"><span class="text-sm">Daily water target</span>
           <select class="input py-2" name="water">${[1500, 1750, 2000, 2250, 2500, 2750, 3000, 3500, 4000].map((v) => `<option value="${v}" ${pr.water === v ? 'selected' : ''}>${fmtKg(v)} ml</option>`).join('')}</select>
         </label>
@@ -3329,6 +3491,15 @@ document.addEventListener('click', (e) => {
       saveState(); renderModal();
       return;
     }
+    case 'idea': {
+      const x = ideaCache[Number(b.dataset.k)], meal = b.dataset.meal;
+      if (!x) return;
+      const list = (state.food.log[foodDate] ||= []);
+      const items = x.item.kind === 'meal' ? x.item.m.items : [x.item.e];
+      items.forEach(({ id, ts, meal: _m, ...rest }) => list.push({ ...rest, id: uid(), meal, ts: Date.now() }));
+      saveState(); render(); toast(`Added ${x.name} to ${MEAL_LABEL[meal]}. Tap it there to change the amount.`);
+      return;
+    }
     case 'save': saveFoodEntry(); return;
     case 'delete': deleteFoodEntry(); return;
   }
@@ -3379,7 +3550,7 @@ document.addEventListener('submit', (e) => {
     Object.assign(t, fixedTargets(t.kcal), { custom: form.dataset.manual === '1' });
     state.food.profile = p;
     state.food.targets = t;
-    Object.assign(state.food.prefs, { trainingOn: fd.get('trainingOn') === 'on', trainingGap: Number(fd.get('trainingGap')) || 200, water: Number(fd.get('water')) || 2500 });
+    Object.assign(state.food.prefs, { trainingOn: fd.get('trainingOn') === 'on', trainingGap: Number(fd.get('trainingGap')) || 200, water: Number(fd.get('water')) || 2500, dietBreak: fd.get('dietBreak') === 'on' });
     modal = null;
     saveState(); render(); toast('Targets saved');
   } else if (form.id === 'fq-form') {

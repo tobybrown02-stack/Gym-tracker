@@ -86,6 +86,17 @@ training day: weigh in before training). The starting check-in is the setup
 form itself (no separate screen); the owner was briefly confused by this,
 was offered a "Starting point" summary after setup, and declined.
 
+**Session length:** `sessionMinutes(routine, date)` ≈ 5 min warm-up + per
+exercise 1 min setup + (3 s/rep + 10 s) per set + rest after each set (15 s
+inside a superset), using the programme's sets/rest. Shown on today's routine
+(amber warning over 60 min, the owner's limit) and on Plan routine cards.
+
+**Weekly recap:** `weekRecap(start)` / `recapHtml()`: sessions vs planned,
+working sets and kg vs the week before, weight trend change, avg kcal/protein
+vs targets, PRs (one per exercise), muscles under 10 sets. Shown on the Workout
+tab on Mon/Tue (owner's rest days; "Hide" snoozes it) and on Stats for the
+selected week.
+
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
 exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
@@ -99,6 +110,15 @@ around the target so the weekly total is unchanged (owner explicitly wanted
 e.g. 2,400 → ~2,450/2,250, not a big rest-day cut). Weekly check-in estimates
 maintenance from 3 weeks of intake + weight trend (EMA), max ±200 kcal/week.
 Recipes, saved meals, water, weight trend.
+The weekly check-in only *suggests* a change; the owner taps to accept.
+**Diet break** (`prefs.dietBreak`): in programme deload weeks `baseTargets()`
+raises calories to `maintenanceKcal()` (latest check-in TDEE ≤35 days old,
+else the formula), as carbs; the training-day split still applies on top.
+Weekly check-ins pause during the break week and the week after (water
+weight). **Protein ideas** card on the Food tab (today, when ≥15 g protein
+and ≥100 kcal left): foods eaten in the last 4 weeks (as usually logged),
+favourites and saved meals that fit the calories left, sorted by protein per
+kcal; one tap adds them to the meal for the time of day.
 
 **Food data:** `food-data/uk-products.json` (~30k most-scanned UK products from
 the Open Food Facts export) and `food-data/uk-cofid.json` (gov.uk CoFID 2021)
