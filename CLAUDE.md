@@ -77,6 +77,15 @@ weight, waist and e1RM vs the last session before the start. Owner (Oct 2026):
 ~103.9 kg, goal 95 kg, slow cut, 5 days/week up to an hour, no squats or
 deadlifts.
 
+Owner's current setup (as of 28 Oct 2026): programme started with week 1 =
+Mon 26 Oct 2026. Five routines, "A - Back and Biceps", "B - Chest,
+Shoulders…", "C - Legs", "D - Back, Chest and B…", "E - Legs and Shoulder…",
+scheduled Wed–Sun (A–E), Mon/Tue rest. Deloads: weeks of 16 Nov, 14 Dec,
+11 Jan. Check-ins due Sun 22 Nov, Sun 20 Dec, Sun 17 Jan (Sunday is a
+training day: weigh in before training). The starting check-in is the setup
+form itself (no separate screen); the owner was briefly confused by this,
+was offered a "Starting point" summary after setup, and declined.
+
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
 exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
