@@ -714,7 +714,7 @@ function seedState() {
 }
 
 const emptyFood = () => ({
-  profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [],
+  profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [], calcPeople: [],
   prefs: { trainingOn: false, trainingGap: 200, water: 2500, dietBreak: false, trendOnly: false },
 });
 
@@ -3110,7 +3110,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -3791,11 +3791,140 @@ function foodView() {
   html += MEALS.map(mealCard).join('');
   html += ideasCard(dayTotals(foodDate), tf);
   html += waterCard() + weightCard();
-  html += `<button class="btn-ghost mt-2 w-full" data-food="setup">Targets &amp; profile</button>
+  html += `<div class="mt-2 grid grid-cols-2 gap-2"><button class="btn-ghost" data-food="setup">Targets &amp; profile</button><button class="btn-ghost" data-food="calc-open">Macro calculator</button></div>
   <p class="mt-4 text-center text-[11px] leading-relaxed muted">Product data © <a class="underline" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> contributors (ODbL).
   UK reference data: McCance and Widdowson’s Composition of Foods Integrated Dataset, Office for Health Improvement and Disparities (Open Government Licence).</p>`;
   return html;
 }
+
+// ----- Macro calculator (for anyone; never changes your targets unless you ask) -----
+const MC_GOALS = [['lose-fast', -750, 'Lose ~0.75 kg a week', 'Only with a lot to lose'], ['lose', -500, 'Lose ~0.5 kg a week', ''], ['lose-slow', -250, 'Lose ~0.25 kg a week', ''],
+  ['maintain', 0, 'Maintain weight', ''], ['gain-slow', 250, 'Lean gain ~0.25 kg a week', ''], ['gain', 500, 'Gain ~0.5 kg a week', 'Faster, more fat gain']];
+const MC_PROTEIN = [[1.6, '1.6 g/kg', 'Minimum for gym-goers'], [1.8, '1.8 g/kg', 'Good default'], [2, '2.0 g/kg', 'Dieting, keep muscle'], [2.2, '2.2 g/kg', 'Hard cut']];
+const mcBlank = () => ({ id: null, name: '', sex: 'female', age: '', height: '', weight: '', goalKg: '', activity: 1.55, goal: 'lose-slow', protein: 1.8, fatPct: 30, hUnit: 'cm', wUnit: 'kg' });
+
+function mcResult(p) {
+  if (!(p.age > 0 && p.height > 0 && p.weight > 0)) return null;
+  const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'female' ? -161 : 5);
+  const tdee = Math.round((bmr * p.activity) / 10) * 10;
+  const delta = (MC_GOALS.find((g) => g[0] === p.goal) || MC_GOALS[3])[1];
+  const floor = p.sex === 'female' ? 1200 : 1500;
+  const kcal = Math.max(floor, Math.round((tdee + delta) / 10) * 10);
+  // Protein from goal weight when it's lower: very high body weights otherwise give silly numbers.
+  const basis = p.goalKg > 0 && p.goalKg < p.weight ? p.goalKg : p.weight;
+  const protein = Math.round((p.protein * basis) / 5) * 5;
+  const fat = Math.max(Math.round((kcal * p.fatPct) / 100 / 9), Math.round(0.6 * basis));
+  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+  return { bmr: Math.round(bmr), tdee, kcal, protein, fat, carbs, basis, floored: kcal === floor && tdee + delta < floor, weekly: round2(((kcal - tdee) * 7) / KCAL_PER_KG) };
+}
+
+function mcText(p, r) {
+  return `${p.name || 'Targets'}: ${fmtKg(r.kcal)} kcal a day. Protein ${r.protein} g, carbs ${r.carbs} g, fat ${r.fat} g, fibre 30 g+. Maintenance is about ${fmtKg(r.tdee)} kcal.`;
+}
+
+function mcOutHtml(p) {
+  const r = mcResult(p);
+  if (!r) return '<p class="text-sm muted">Fill in age, height and weight to see the numbers.</p>';
+  const pct = (g, k) => Math.round(((g * k) / r.kcal) * 100);
+  const tile = (label, v, unit, sub) => `<div class="bg-white p-3 dark:bg-slate-900"><p class="label">${label}</p><p class="display text-3xl leading-none tabular-nums">${v}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">${unit}</span></p><p class="mt-1 text-xs muted">${sub}</p></div>`;
+  return `<div class="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800">
+      ${tile('Calories', fmtKg(r.kcal), 'kcal', `Maintenance ≈ ${fmtKg(r.tdee)}`)}
+      ${tile('Protein', r.protein, 'g', `${pct(r.protein, 4)}% · ${p.protein} g per kg${r.basis !== Number(p.weight) ? ' of goal weight' : ''}`)}
+      ${tile('Carbs', r.carbs, 'g', `${pct(r.carbs, 4)}% · the rest`)}
+      ${tile('Fat', r.fat, 'g', `${pct(r.fat, 9)}% of calories`)}
+    </div>
+    <p class="mt-2 text-sm">${r.weekly < 0 ? `Expect about <b>${fmt(-r.weekly)} kg a week</b> down on average` : r.weekly > 0 ? `Expect about <b>${fmt(r.weekly)} kg a week</b> up on average` : 'Weight should hold steady'}. Fibre 30 g+ a day, salt under 6 g.</p>
+    ${r.floored ? `<p class="mt-1 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">Held at ${fmtKg(r.kcal)} kcal: going lower isn’t a good idea without a doctor or dietitian.</p>` : ''}
+    <p class="mt-2 text-xs muted">Mifflin-St Jeor formula × activity. It’s a starting point: after 2–3 weeks, adjust by 100–200 kcal based on the weight trend.</p>`;
+}
+
+function macroCalcModal() {
+  const p = modal.p, people = state.food.calcPeople;
+  const n = (key, label, value, attrs = '') => `<label class="block min-w-0"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" data-mc="${key}" value="${value === '' || value == null ? '' : value}" ${attrs}></label>`;
+  const unit = (key, a, b) => `<span class="ml-auto flex overflow-hidden rounded-lg border border-slate-300 text-[11px] font-bold dark:border-slate-700">${[a, b].map((u) => `<button type="button" class="px-2 py-0.5 ${p[key] === u ? 'bg-indigo-600 text-white' : 'muted'}" data-mcu="${key}" data-val="${u}">${u}</button>`).join('')}</span>`;
+  const tIn = round1(p.height / 2.54), tLb = round1(p.weight * 2.20462); // round the total first so 63.5 kg reads 10 st 0 lb
+  const ft = p.height ? Math.floor(tIn / 12) : '', inch = p.height ? round1(tIn - ft * 12) : '';
+  const st = p.weight ? Math.floor(tLb / 14) : '', lb = p.weight ? round1(tLb - st * 14) : '';
+  const seg = (key, val, label) => `<button type="button" class="seg ${String(p[key]) === String(val) ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300' : ''}" data-mcp="${key}" data-val="${val}">${label}</button>`;
+  return `${modalHead('Macro calculator')}
+    <p class="-mt-1 mb-3 text-sm muted">Work out targets for anyone. This doesn’t change your own targets unless you tap “Use as my targets”.</p>
+    ${people.length ? `<div class="mb-3 flex flex-wrap gap-2">${people.map((x) => `<button type="button" class="chip ${x.id === p.id ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : ''}" data-mcload="${x.id}">${esc(x.name)}</button>`).join('')}<button type="button" class="chip" data-mcload="">+ New</button></div>` : ''}
+    <div class="space-y-3">
+      <label class="block"><span class="label">Name (to save them)</span><input class="input" maxlength="24" data-mc="name" value="${esc(p.name)}" placeholder="e.g. Sophie"></label>
+      <div><span class="label">Sex</span><div class="grid grid-cols-2 gap-2">${seg('sex', 'female', 'Female')}${seg('sex', 'male', 'Male')}</div></div>
+      <div class="grid grid-cols-[5rem_1fr] gap-3">${n('age', 'Age', p.age)}
+        <div class="min-w-0"><span class="label flex items-center">Height ${unit('hUnit', 'cm', 'ft')}</span>${p.hUnit === 'cm' ? `<input class="input" type="number" inputmode="decimal" step="any" min="0" data-mc="height" value="${p.height || ''}">`
+          : `<div class="grid grid-cols-2 gap-2"><input class="input" type="number" inputmode="numeric" placeholder="ft" data-mc="ft" value="${ft}"><input class="input" type="number" inputmode="decimal" placeholder="in" data-mc="in" value="${inch}"></div>`}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="min-w-0"><span class="label flex items-center">Weight ${unit('wUnit', 'kg', 'st')}</span>${p.wUnit === 'kg' ? `<input class="input" type="number" inputmode="decimal" step="any" min="0" data-mc="weight" value="${p.weight || ''}">`
+          : `<div class="grid grid-cols-2 gap-2"><input class="input" type="number" inputmode="numeric" placeholder="st" data-mc="st" value="${st}"><input class="input" type="number" inputmode="decimal" placeholder="lb" data-mc="lb" value="${lb}"></div>`}</div>
+        ${n('goalKg', 'Goal (kg)', p.goalKg, 'placeholder="optional"')}
+      </div>
+      <label class="block"><span class="label">Activity</span><select class="input" data-mc="activity">${ACTIVITY.map(([v, l]) => `<option value="${v}" ${Number(p.activity) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="block"><span class="label">Goal</span><select class="input" data-mc="goal">${MC_GOALS.map(([v, , l, sub]) => `<option value="${v}" ${p.goal === v ? 'selected' : ''}>${l}${sub ? ` (${sub.toLowerCase()})` : ''}</option>`).join('')}</select></label>
+      <div><span class="label">Protein</span><div class="grid grid-cols-4 gap-1.5">${MC_PROTEIN.map(([v, l]) => seg('protein', v, l)).join('')}</div><p class="mt-1 text-xs muted">${MC_PROTEIN.find((x) => x[0] === Number(p.protein))?.[2] || ''}</p></div>
+      <div><span class="label">Fat</span><div class="grid grid-cols-3 gap-1.5">${[25, 30, 35].map((v) => seg('fatPct', v, `${v}%`)).join('')}</div></div>
+    </div>
+    <div class="mt-4" id="mc-out">${mcOutHtml(p)}</div>
+    <div class="mt-4 grid grid-cols-2 gap-2">
+      <button type="button" class="btn-ghost" data-mcact="copy">Copy</button>
+      <button type="button" class="btn-primary" data-mcact="save">${p.id ? 'Save changes' : 'Save person'}</button>
+    </div>
+    <div class="mt-2 flex items-center justify-between">
+      ${p.id ? '<button type="button" class="link text-rose-600 dark:text-rose-400" data-mcact="delete">Delete</button>' : '<span></span>'}
+      <button type="button" class="link" data-mcact="mine">Use as my targets</button>
+    </div>`;
+}
+
+document.addEventListener('input', (e) => {
+  const el = e.target, k = el.dataset.mc;
+  if (!k || modal?.type !== 'macro-calc') return;
+  const p = modal.p, v = el.value === '' ? '' : el.tagName === 'SELECT' && k === 'goal' ? el.value : Number(el.value);
+  if (k === 'name') p.name = el.value;
+  else if (k === 'goal') p.goal = el.value;
+  else if (k === 'ft' || k === 'in') { const box = el.parentElement.querySelectorAll('input'); const f = Number(box[0].value) || 0, i = Number(box[1].value) || 0; p.height = f || i ? round1(f * 30.48 + i * 2.54) : ''; }
+  else if (k === 'st' || k === 'lb') { const box = el.parentElement.querySelectorAll('input'); const s = Number(box[0].value) || 0, l = Number(box[1].value) || 0; p.weight = s || l ? round1(s * 6.35029 + l * 0.453592) : ''; }
+  else p[k] = v;
+  document.getElementById('mc-out').innerHTML = mcOutHtml(p);
+});
+document.addEventListener('change', (e) => { if (e.target.dataset.mc && modal?.type === 'macro-calc' && e.target.tagName === 'SELECT') e.target.dispatchEvent(new Event('input', { bubbles: true })); });
+
+document.addEventListener('click', async (e) => {
+  if (modal?.type !== 'macro-calc') return;
+  const b = e.target.closest('[data-mcp],[data-mcu],[data-mcload],[data-mcact]');
+  if (!b) return;
+  const p = modal.p;
+  if (b.dataset.mcp) { p[b.dataset.mcp] = isNaN(Number(b.dataset.val)) ? b.dataset.val : Number(b.dataset.val); renderModal(); return; }
+  if (b.dataset.mcu) { p[b.dataset.mcu] = b.dataset.val; renderModal(); return; }
+  if (b.dataset.mcload !== undefined) { const x = state.food.calcPeople.find((q) => q.id === b.dataset.mcload); modal.p = x ? { ...mcBlank(), ...x } : mcBlank(); renderModal(); return; }
+  const r = mcResult(p);
+  switch (b.dataset.mcact) {
+    case 'copy':
+      if (!r) return toast('Fill in age, height and weight first');
+      try { await navigator.clipboard.writeText(mcText(p, r)); toast('Copied: paste it into a message'); } catch (err) { toast(mcText(p, r)); }
+      return;
+    case 'save': {
+      if (!p.name.trim()) return toast('Add a name to save them');
+      if (!p.id) p.id = uid();
+      const list = state.food.calcPeople, i = list.findIndex((q) => q.id === p.id);
+      if (i >= 0) list[i] = { ...p }; else list.push({ ...p });
+      saveState(); renderModal(); toast(`Saved ${p.name}`);
+      return;
+    }
+    case 'delete':
+      if (!confirm(`Delete ${p.name}?`)) return;
+      state.food.calcPeople = state.food.calcPeople.filter((q) => q.id !== p.id);
+      modal.p = mcBlank(); saveState(); renderModal();
+      return;
+    case 'mine': {
+      if (!r) return toast('Fill in age, height and weight first');
+      if (!confirm(`Replace your daily targets with ${fmtKg(r.kcal)} kcal, ${r.protein} g protein, ${r.carbs} g carbs and ${r.fat} g fat?`)) return;
+      state.food.targets = { kcal: r.kcal, protein: r.protein, carbs: r.carbs, fat: r.fat, ...fixedTargets(r.kcal), custom: true };
+      modal = null; saveState(); render(); toast('Your targets are updated');
+    }
+  }
+});
 
 function foodSummary(tot, t) {
   const left = Math.round(t.kcal - tot.kcal);
@@ -4493,6 +4622,7 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'setup': modal = { type: 'food-setup' }; renderModal(); return;
+    case 'calc-open': modal = { type: 'macro-calc', p: mcBlank() }; renderModal(); return;
     case 'calc': { const form = document.getElementById('food-setup'); form.dataset.manual = ''; fillTargets(form); return; }
     case 'add': openFoodModal(b.dataset.meal); return;
     case 'copy': {

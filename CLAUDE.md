@@ -85,6 +85,11 @@ remapping Tailwind's `slate` (neutrals), `indigo` (red accent), `violet`
 names. Each routine has a plate colour by position (`PLATE_COLORS`,
 `plateColor(r)`, `plateDot(r)`): red, blue, yellow, green, white. The
 12-week strip shows round "plates". `.eyebrow` = small red uppercase label.
+Home Screen icon (`icons/`, Oct 2026): a cream barbell loaded with red, blue
+and yellow bumper plates on warm black (made with PIL; maskable version has
+more padding). iOS only picks up a new icon when the app is removed and re-added
+to the Home Screen, which wipes that app's storage: always back up first and
+restore after.
 Header subtitle shows the programme week (`#hdr-sub`, set in `render()`).
 Friend-style layout pieces: Today hero card with a plate-colour bar, tags and
 "Start workout"; `todayTiles()` (weight trend, sessions, calories left, next
@@ -274,6 +279,14 @@ dots via `weightChart(pts, hide)`); only the trend is shown.
 vs eaten; past days under 800 kcal count as on target; shows kcal under/over
 so far and the per-day adjustment for the rest of the week. Info only: daily
 targets never change.
+
+**Macro calculator** (Food tab button → `macroCalcModal`): general-purpose,
+for other people (the owner wanted it for their girlfriend). Mifflin-St Jeor ×
+activity, goals −750…+500 kcal, protein 1.6–2.2 g/kg (of goal weight when
+that's lower), fat 25/30/35%, floor 1,200/1,500 kcal; cm or ft/in, kg or
+st/lb. People can be saved (`state.food.calcPeople`), copied as text, or
+applied as your own targets ("Use as my targets", with a confirm). It never
+touches your targets otherwise.
 
 **Food data:** `food-data/uk-products.json` (~30k most-scanned UK products from
 the Open Food Facts export) and `food-data/uk-cofid.json` (gov.uk CoFID 2021)
