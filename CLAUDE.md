@@ -14,7 +14,23 @@ before changing anything.
 - Data lives in the browser (`localStorage` key `pot.v1`). Any new field must be
   added to `seedState()`/`emptyFood()` **and** `migrate()` so old saved data and
   backups keep loading.
-- Explain things in plain English; the owner isn't a developer.
+- Explain things in plain English; the owner isn't a developer. They like to
+  talk ideas through first; for big changes to how targets are worked out,
+  propose with a worked example and confirm choices before building.
+
+## The owner
+
+- Male, UK, iPhone (uses the Home Screen app daily), trains at a David Lloyd
+  (commercial gym: machines, cables, plate-loaded, Smith, dumbbells).
+- Training since Jan 2023, consistently for the last ~12 months. 5 days a
+  week, up to an hour a session. **No squats or deadlifts** (never suggest them).
+- Lost ~30 kg overall (26 kg in 2026, mostly a big cut). Oct 2026: ~103.9 kg,
+  goal 95 kg, now a **slow cut** (aim ~0.25–0.5 kg a week) while building
+  strength. Food targets (Oct 2026): 2,400 kcal base, protein 170 g, fat 70 g,
+  training-day split on with a 200 kcal gap (5 training days → +57 / −143).
+- Gets discouraged by day-to-day water-weight swings (salt, carbs, new
+  training). Reassure with the trend, not single weigh-ins; they turned on
+  "trend only". Don't suggest cutting calories from a few days of data.
 
 ## Workflow
 
@@ -28,6 +44,7 @@ before changing anything.
   script text with a fresh copy), so phones pick up changes with one tap.
 - Never put a literal closing script tag inside the main script (it ends the
   script block); the update check builds it from split strings.
+- Update this file in the same commit as any feature change.
 
 ## Testing
 
@@ -35,79 +52,87 @@ No test suite is committed. Test with Playwright (preinstalled; `require('playwr
 - Tailwind's CDN is blocked in the sandbox: route `https://cdn.tailwindcss.com/**`
   to a stub (`window.tailwind={}`), or compile the `<style type="text/tailwindcss">`
   block with `npx tailwindcss@3.4.16` and inject it to check visuals.
+  **Recompile after adding new classes**, or screenshots show a broken layout
+  from stale CSS.
 - `file://` works for most things; serve over `http://localhost` to test the
   service worker, offline mode and `food-data/` loading.
 - Mock Open Food Facts (`search.openfoodfacts.org`, `world.openfoodfacts.org`)
   with `page.route`; the sandbox can't reach them.
+- Use `page.clock.install({ time })` to test programme weeks, Mon/Tue recaps
+  and deload weeks. `page.fill()` doesn't fire `change`; `blur()` the input
+  to test the auto rest timer.
 - Check at 390px wide (iPhone) in dark mode; screenshot and look.
 
 ## How the app works
 
-Tabs: Workout, Food, Plan, Stats, Exercises, History.
+Tabs: Workout, Food, Plan, Stats, Exercises, History (History also holds
+Settings: bar weight, progression mode, storage, erase).
 
-**Progressive overload (double progression)** — `predict(ex)`:
+**Progression engine** — `predict(ex, date)` (call `targetFor()` in the UI):
 - Working sets = sets at the hardest load (heaviest; least assistance for
   assisted machines); lighter sets are warm-ups and ignored.
-- Every planned working set at the top of the rep range → next session goes up
-  one equipment step and reps reset to the bottom of the range.
-- Otherwise same load, beat last total reps by ≥1 (extra rep on weakest set).
-- Steps: dumbbell 2 kg, machine 3 or 4 kg (per exercise), barbell 2.5 kg,
-  bodyweight "add weight" 2.5 kg, "reps only" no step, "assisted" machine 3/4 kg
-  with assistance going *down*. Use `harder(ex,a,b)` / `loadLabel(ex,w)` for
-  anything load-related.
 - Sets can be marked warm-up (`s.warm`, tap the set number → "W"); they're
   ignored by `evaluate()`. Use it for "finding my weight" feeler sets.
-- Per-set RPE (`s.rpe`, replaced the old per-exercise `h.rpe`, still read as a
-  fallback). `predict()` uses the RPE of the last working set from the last
-  session of that exercise (any routine): reps + (10 − RPE) ≥ top of range + 3
-  → "calibrate" up from est. 1RM (bottom of range at ~2 left) if that's more
-  than one step; reps + RIR < bottom of range → calibrate down; RPE ≤ 7.5 →
-  aim +2 reps; RPE ≥ 9.5 → note that +1 is plenty. No RPE → plain double
-  progression. `rebase()` uses RPE-aware e1RM (`e1rmRpe`).
+- Per-set RPE (`s.rpe` select on every set row; replaced the old per-exercise
+  `h.rpe`, still read as a fallback). Advice to the owner: rating just the
+  last set is enough; rating every set is fine (only the last counts).
 - **RPE formula mode** (`settings.progression`, default `'rpe'`; owner chose
   it, with 1%/week, RPE wave and "go heavier"): `rpePredict()` runs first in
   `predict()` for weighted (non-bodyweight) exercises whose last session has a
   rated working set. e1RM = w × (1 + (reps + 10 − RPE)/30) (`ratedE1`, the LAST
-  rated working set only: the owner may rate every set, and earlier fresher
-  sets would inflate targets; `rebase()` uses it too); after ≥2 earlier rated sessions it's clamped to −5%/+2.5%
-  of the previous one. Goal = e1RM × 1.01 (`RPE_GROWTH`). Target RPE for the
-  last set (`targetRpe`): programme weeks 1/2/3 of each block → 8/8.5/9, else
-  8. Reps(w) = round(30 × (goal/w − 1) − RIR); choose the heaviest load within
-  ±3 steps of last time that still reaches the bottom of the rep range; reps
-  clamped to the range; same reps every set. Otherwise falls back to double
-  progression below. Plateau also counts an RPE-e1RM gain (>0.5%) as progress.
-- Rest timer starts automatically on ✓ or when a reps box is committed
-  (`change` event); 60 s after a warm-up, none mid-superset (`restAfterSet`).
-- Plateau: 3 sessions in a row without progress → offer ~10% deload (more
+  rated working set only: earlier fresher sets would inflate targets;
+  `rebase()` uses it too). After ≥2 earlier rated sessions the estimate is
+  clamped to −5%/+2.5% of the previous one. Goal = e1RM × 1.01
+  (`RPE_GROWTH`). Target RPE for the last set (`targetRpe`): programme weeks
+  1/2/3 of each block → 8/8.5/9, else 8. Reps(w) = round(30 × (goal/w − 1) −
+  RIR); choose the heaviest load within ±3 steps of last time that still
+  reaches the bottom of the rep range; reps clamped to the range; same reps
+  every set. Badge "RPE target".
+- **Double progression** (fallback: no rated set, bodyweight/assisted/reps-only
+  exercises, or the setting switched to `'double'`): every planned working
+  set at the top of the rep range → up one equipment step, reps reset to the
+  bottom; otherwise same load, beat last total reps by ≥1 (extra rep on the
+  weakest set). RPE still nudges it: reps + (10 − RPE) ≥ top + 3 →
+  "calibrate" up from est. 1RM (bottom of range at ~2 left) if that's more
+  than one step; reps + RIR < bottom → calibrate down; RPE ≤ 7.5 → aim +2
+  reps; RPE ≥ 9.5 → note that +1 is plenty.
+- Steps: dumbbell 2 kg, machine 3 or 4 kg (per exercise), barbell 2.5 kg,
+  bodyweight "add weight" 2.5 kg, "reps only" no step, "assisted" machine 3/4 kg
+  with assistance going *down*. Use `harder(ex,a,b)` / `loadLabel(ex,w)` for
+  anything load-related. `floorToStep()` for rounding down.
+- Plateau: 3 sessions in a row without progress (heavier, more reps at the same
+  load, or in RPE mode an RPE-e1RM gain >0.5%) → offer ~10% deload (more
   assistance for assisted). Logged deloads reset the count.
+- Rest timer starts automatically on ✓ or when a reps box is committed
+  (`change` event); 60 s after a warm-up, none mid-superset (`restAfterSet`);
+  doesn't restart for the same set. iOS pauses it while the phone is locked.
 
 **12-week programme** (`state.programme`, old ones in `state.pastProgrammes`;
 the owner's own design): three 4-week blocks, weeks 1–3 build and week 4
 deloads. Block 1 Base 10–15 reps; Block 2 Build 8–12 reps, +1 set on main
 lifts; Block 3 Strength 5–8 reps on main lifts (rest ≥150 s), others 8–12.
-Main lifts = `programme.main` (default: exercises hitting 2+ muscles), editable.
-`progEx(ex, date)` returns the exercise with the block's range/sets/rest; it
-never changes the saved exercise or routines. Use `targetFor(ex)` /
-`entryTarget(entry)` instead of `predict()` in the workout UI. First session
-in a new rep range → `rebase()` picks the weight from est. 1RM (bottom of range
-at ~2 RIR). Deload weeks 4/8/12: ~10% lighter (more assistance), half sets,
-saved as `h.pdl`. Week 12 optional rep-max test on main lifts (`entry.test` →
-`h.test`, one all-out set). `predict()` skips pdl/test sessions and
-`plateau()` resets on them. Draft `pdl` toggle: "Train normally today".
-Check-ins: week 0 at setup, then end of weeks 4/8/12 (weight, waist, feel,
-note; also written to weight log/measurements); review compares trend
-weight, waist and e1RM vs the last session before the start. Owner (Oct 2026):
-~103.9 kg, goal 95 kg, slow cut, 5 days/week up to an hour, no squats or
-deadlifts.
+Main lifts = `programme.main` (default: exercises hitting 2+ muscles), editable
+from the Plan card ("Main lifts · Change"). `progEx(ex, date)` returns the
+exercise with the block's range/sets/rest; it never changes the saved exercise
+or routines. Use `targetFor(ex)` / `entryTarget(entry)` instead of `predict()`
+in the workout UI. First session in a new rep range → `rebase()` picks the
+weight from est. 1RM (bottom of range at ~2 RIR). Deload weeks 4/8/12: ~10%
+lighter (more assistance), half sets, saved as `h.pdl`. Week 12 optional
+rep-max test on main lifts (`entry.test` → `h.test`, one all-out set).
+`predict()` skips pdl/test sessions and `plateau()` resets on them. Draft
+`pdl` toggle: "Train normally today". Check-ins: week 0 at setup (the setup
+form itself), then end of weeks 4/8/12 (weight, waist, feel, note; also written
+to weight log/measurements); review compares trend weight, waist and e1RM vs
+the last session before the start, with plain-English advice.
 
-Owner's current setup (as of 28 Oct 2026): programme started with week 1 =
+Owner's current setup (as of Oct 2026): programme started with week 1 =
 Mon 26 Oct 2026. Five routines, "A - Back and Biceps", "B - Chest,
 Shoulders…", "C - Legs", "D - Back, Chest and B…", "E - Legs and Shoulder…",
 scheduled Wed–Sun (A–E), Mon/Tue rest. Deloads: weeks of 16 Nov, 14 Dec,
 11 Jan. Check-ins due Sun 22 Nov, Sun 20 Dec, Sun 17 Jan (Sunday is a
-training day: weigh in before training). The starting check-in is the setup
-form itself (no separate screen); the owner was briefly confused by this,
-was offered a "Starting point" summary after setup, and declined.
+training day: weigh in before training). The owner was briefly confused that
+the starting check-in has no separate screen; offered a "Starting point"
+summary after setup and declined.
 
 **Session length:** `sessionMinutes(routine, date)` ≈ 5 min warm-up + per
 exercise 1 min setup + (3 s/rep + 10 s) per set + rest after each set (15 s
@@ -130,20 +155,28 @@ of done sets for one muscle (`statsMuscle`), deload weeks amber.
 weight (also written into `food.weights` so charts span it), total lost,
 5 kg milestones, goal ETA from the 4-week trend rate (`rate4w`).
 
+**Exercise library** (`LIBRARY`, 161 entries, pipe-separated text: name |
+equipment d/m/b/w(bodyweight + weight)/r(reps only)/a(assisted) | rep range |
+start kg | primary | secondary | rest s). Includes UK commercial-gym machines,
+plate-loaded, Smith and cable variants. Keep names unique and muscles within
+`MUSCLES`; don't add more squat/deadlift variants.
+
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
-overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
-exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
-and summary, exercise library (`LIBRARY`, ~160 entries incl. UK commercial-gym machines, plate-loaded and Smith variants; keep names unique), stats (sets per muscle, volume,
-e1RM/best-reps chart, nutrition summary, body measurements).
+overrides, warm-up ramp and plate calculator, notes, PRs, swap exercise,
+supersets (`entry.ss`, remembered in `routine.links`), workout clock and
+summary, stats (sets per muscle, volume, e1RM/best-reps chart, nutrition
+summary, body measurements).
 
 **Food:** targets from Mifflin-St Jeor × activity ± goal, protein ~2 g/kg when
 cutting (1.8 otherwise), fat ≥25%, carbs the rest. Optional training-day
 calories: the setting is the *gap* between training and rest days, split
 around the target so the weekly total is unchanged (owner explicitly wanted
-e.g. 2,400 → ~2,450/2,250, not a big rest-day cut). Weekly check-in estimates
-maintenance from 3 weeks of intake + weight trend (EMA), max ±200 kcal/week.
-Recipes, saved meals, water, weight trend.
-The weekly check-in only *suggests* a change; the owner taps to accept.
+e.g. 2,400 → ~2,450/2,250, not a big rest-day cut). Recipes, saved meals,
+barcode scanning, water, weight trend (EMA, 10%/day).
+**Weekly calorie check-in** estimates maintenance from 3 weeks of intake +
+weight trend, max ±200 kcal/week. It needs ≥10 days of ≥800 kcal logged in the
+last 21 and ≥4 weigh-ins spanning ≥10 days. It only *suggests*; the owner taps
+to accept (fully automatic updates were offered, not chosen).
 **Diet break** (`prefs.dietBreak`): in programme deload weeks `baseTargets()`
 raises calories to `maintenanceKcal()` (latest check-in TDEE ≤35 days old,
 else the formula), as carbs; the training-day split still applies on top.
@@ -154,8 +187,7 @@ favourites and saved meals that fit the calories left, sorted by protein per
 kcal; one tap adds them to the meal for the time of day.
 **Trend only** (`prefs.trendOnly`, toggle on the Food weight card): after
 logging, the day's reading is hidden everywhere (card, history list, chart
-dots); only the trend is shown. The owner asked for this to stay motivated
-through water-weight swings.
+dots via `weightChart(pts, hide)`); only the trend is shown.
 **Weekly budget** (Food tab, `weekBudget`): Mon–Sun sum of `targetsFor()`
 vs eaten; past days under 800 kcal count as on target; shows kcal under/over
 so far and the per-day adjustment for the rest of the week. Info only: daily
@@ -175,5 +207,19 @@ on iOS have separate storage from Safari), storage meter (~5 MB Safari limit).
 
 ## Ideas not done yet
 
-- Wearable (Garmin/Fitbit) dashboard — needs a server; parked by the owner.
+Offered to the owner and not chosen (yet):
+- Keep the screen awake during a workout (Wake Lock API) so the rest timer
+  can alert; iOS pauses web timers when locked.
+- Pinned per-exercise notes (seat height, machine, cue) shown every session.
+- Exercise demo links (free YouTube links).
+- Manual steps tracking alongside the weight trend.
+- Fully automatic weekly calorie updates (keep the 200 kcal cap).
+- "Copy the whole day" for food.
+- CSV export of workouts and food.
+
+Not possible or advised against:
+- Wearable (Garmin/Fitbit) dashboard, Apple Health sync — need a server or
+  paid developer account; parked by the owner.
 - Push notifications — need a server; not possible for free here.
+- Progress photos stored in the app — would blow the ~5 MB storage and
+  backups; the owner keeps them in the Photos app.
