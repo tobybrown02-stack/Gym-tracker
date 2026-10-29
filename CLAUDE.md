@@ -24,6 +24,15 @@ before changing anything.
   (commercial gym: machines, cables, plate-loaded, Smith, dumbbells).
 - Training since Jan 2023, consistently for the last ~12 months. 5 days a
   week, up to an hour a session. **No squats or deadlifts** (never suggest them).
+- **Hypermobile**: prefers machines over barbells; **no dumbbell presses**;
+  dumbbell curls and lateral raises are fine. Upper body is the priority;
+  doesn't love training legs (legs are already their best body part).
+- Wearables owned: Garmin Instinct 3 (recommended as the everyday device: free,
+  long battery, sleep/HRV/readiness/steps), Apple Watch S10, Fitbit, and a
+  Whoop whose subscription ends March 2027 (advised not to renew). None can
+  sync with the app (needs a server). Advised to ignore wearable calorie-burn
+  figures and not eat back exercise calories; the weekly check-in uses the
+  real weight trend.
 - Lost ~30 kg overall (26 kg in 2026, mostly a big cut). Oct 2026: ~103.9 kg,
   goal 95 kg, now a **slow cut** (aim ~0.25–0.5 kg a week) while building
   strength. Food targets (Oct 2026): 2,400 kcal base, protein 170 g, fat 70 g,
