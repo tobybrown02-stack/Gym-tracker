@@ -71,6 +71,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (isPage(req, url)) return event.respondWith(networkFirstPage(req));
   if (url.origin === location.origin && url.pathname.includes('/food-data/')) return event.respondWith(staleWhileRevalidate(req, event));
-  if (url.origin === location.origin || ['cdn.tailwindcss.com', 'unpkg.com', 'fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return event.respondWith(cacheFirst(req));
+  if (url.origin === location.origin || ['cdn.tailwindcss.com', 'unpkg.com', 'cdn.jsdelivr.net', 'fastly.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return event.respondWith(cacheFirst(req));
   // Everything else (e.g. live Open Food Facts lookups) goes straight to the network.
 });

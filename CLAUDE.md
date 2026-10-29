@@ -264,7 +264,10 @@ cutting (1.8 otherwise), fat ≥25%, carbs the rest. Optional training-day
 calories: the setting is the *gap* between training and rest days, split
 around the target so the weekly total is unchanged (owner explicitly wanted
 e.g. 2,400 → ~2,450/2,250, not a big rest-day cut). Recipes, saved meals,
-barcode scanning, water, weight trend (EMA, 10%/day).
+barcode scanning (Oct 2026: own camera loop + `BarcodeDetector`, native if it
+supports EAN-13, else the free `barcode-detector` ponyfill = ZXing WebAssembly
+from jsDelivr, cached by `sw.js`; EAN check digit + two matching reads before
+accepting; html5-qrcode was dropped because it misread/failed on iPhone), water, weight trend (EMA, 10%/day).
 **Weekly calorie check-in** estimates maintenance from 3 weeks of intake +
 weight trend, max ±200 kcal/week. It needs ≥10 days of ≥800 kcal logged in the
 last 21 and ≥4 weigh-ins spanning ≥10 days. It only *suggests*; the owner taps

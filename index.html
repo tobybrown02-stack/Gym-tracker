@@ -3316,7 +3316,8 @@ const ACTIVITY = [
 ];
 const GOALS = [['lose', -500, 'Lose ~0.5 kg a week'], ['lose-slow', -250, 'Lose ~0.25 kg a week'], ['maintain', 0, 'Maintain weight'], ['gain-slow', 250, 'Lean gain ~0.25 kg a week']];
 const OFF_FIELDS = 'code,product_name,generic_name,brands,nutriments,serving_size,serving_quantity';
-const SCANNER_SRC = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+// ZXing (C++ compiled to WebAssembly) behind the standard BarcodeDetector API; reads shop barcodes far better than html5-qrcode did on iPhone.
+const SCANNER_SRC = 'https://cdn.jsdelivr.net/npm/barcode-detector@3.1.3/dist/iife/ponyfill.js';
 
 const round1 = (x) => Math.round(x * 10) / 10;
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -4123,7 +4124,10 @@ function foodModal() {
   const m = modal;
   if (m.step === 'amount') return amountStep();
   if (m.step === 'scan') return `${modalHead('Scan a barcode', true)}
-    <div id="scanner" class="min-h-[220px] overflow-hidden rounded-xl bg-black"></div>
+    <div id="scanner" class="relative aspect-[4/3] max-h-[50vh] w-full overflow-hidden rounded-xl bg-black">
+      <video id="scan-video" class="h-full w-full object-cover" playsinline muted autoplay></video>
+      <div class="pointer-events-none absolute inset-x-[12%] top-1/2 h-[34%] -translate-y-1/2 rounded-xl border-2 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]"><div class="absolute inset-x-3 top-1/2 h-0.5 bg-indigo-500/80"></div></div>
+    </div>
     <p id="scan-status" class="mt-2 text-sm muted">Starting camera…</p>
     <div class="mt-3 flex gap-2">
       <input class="input" inputmode="numeric" placeholder="Or type the barcode number" data-fs="code" aria-label="Barcode number">
@@ -4504,7 +4508,7 @@ function setScanStatus(text) {
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
-    if (window.__Html5QrcodeLibrary__) return resolve();
+    if (window.BarcodeDetectionAPI) return resolve();
     const s = document.createElement('script');
     s.src = src;
     s.onload = resolve;
@@ -4513,27 +4517,60 @@ function loadScript(src) {
   });
 }
 
+const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+/** Check digit test for EAN-8/12/13: a misread barcode almost never passes. */
+function validBarcode(code) {
+  if (!/^\d{8}$|^\d{12,13}$/.test(code)) return false;
+  const d = code.split('').map(Number), check = d.pop();
+  const total = d.reverse().reduce((t, n, i) => t + n * (i % 2 ? 1 : 3), 0);
+  return (10 - (total % 10)) % 10 === check;
+}
+
 async function startScanner() {
-  try { await loadScript(SCANNER_SRC); } catch (err) { return setScanStatus('Couldn’t load the scanner. Check your connection, or type the barcode below.'); }
   if (modal?.step !== 'scan' || scanner) return;
-  const L = window.__Html5QrcodeLibrary__, F = L.Html5QrcodeSupportedFormats;
-  const s = new L.Html5Qrcode('scanner', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false });
+  const s = { stream: null, timer: null, last: '', hits: 0 };
   scanner = s;
+  let Detector = window.BarcodeDetector;
   try {
-    await s.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 130 } }, (code) => { stopScanner(); lookupBarcode(code); }, () => {});
-    if (scanner !== s) s.stop().catch(() => {}); // closed while the camera was starting
-    else setScanStatus('Point the camera at the barcode.');
+    const native = Detector && (await Detector.getSupportedFormats()).includes('ean_13');
+    if (!native) { await loadScript(SCANNER_SRC); Detector = window.BarcodeDetectionAPI.BarcodeDetector; }
+  } catch (err) { if (scanner === s) scanner = null; return setScanStatus('Couldn’t load the scanner. Check your connection, or type the barcode below.'); }
+  try {
+    s.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
   } catch (err) {
     if (scanner === s) scanner = null;
-    setScanStatus('Camera not available. Allow camera access for this site, or type the barcode below.');
+    return setScanStatus(err?.name === 'NotAllowedError'
+      ? 'Camera access is blocked. On iPhone: Settings → Safari → Camera → Allow (or Ask), then close and reopen the app. Or type the barcode below.'
+      : 'Camera not available. Type the barcode below.');
   }
+  if (scanner !== s) return s.stream.getTracks().forEach((t) => t.stop()); // closed while the camera was starting
+  const video = document.getElementById('scan-video');
+  video.srcObject = s.stream;
+  try { await video.play(); } catch (err) { /* autoplay with playsinline + muted is allowed */ }
+  const detector = new Detector({ formats: SCAN_FORMATS });
+  setScanStatus('Hold the barcode inside the box, about a hand’s width away.');
+  let busy = false;
+  s.timer = setInterval(async () => {
+    if (busy || scanner !== s || video.readyState < 2) return;
+    busy = true;
+    try {
+      const found = (await detector.detect(video)).find((b) => b.format === 'upc_e' || validBarcode(b.rawValue))?.rawValue;
+      if (found) {
+        // Two matching reads in a row before accepting (rules out a rare misread).
+        s.hits = found === s.last ? s.hits + 1 : 1; s.last = found;
+        if (s.hits >= 2 && scanner === s) { navigator.vibrate?.(60); stopScanner(); lookupBarcode(found); }
+      }
+    } catch (err) { /* frame not ready yet */ }
+    busy = false;
+  }, 120);
 }
 
 function stopScanner() {
   if (!scanner) return;
   const s = scanner;
   scanner = null;
-  s.stop().then(() => s.clear()).catch(() => {});
+  clearInterval(s.timer);
+  s.stream?.getTracks().forEach((t) => t.stop());
 }
 
 function openAmount(food, entry) {
