@@ -140,6 +140,10 @@ weight). **Protein ideas** card on the Food tab (today, when ≥15 g protein
 and ≥100 kcal left): foods eaten in the last 4 weeks (as usually logged),
 favourites and saved meals that fit the calories left, sorted by protein per
 kcal; one tap adds them to the meal for the time of day.
+**Trend only** (`prefs.trendOnly`, toggle on the Food weight card): after
+logging, the day's reading is hidden everywhere (card, history list, chart
+dots); only the trend is shown. The owner asked for this to stay motivated
+through water-weight swings.
 **Weekly budget** (Food tab, `weekBudget`): Mon–Sun sum of `targetsFor()`
 vs eaten; past days under 800 kcal count as on target; shows kcal under/over
 so far and the per-day adjustment for the rest of the week. Info only: daily

@@ -547,7 +547,7 @@ function seedState() {
 
 const emptyFood = () => ({
   profile: null, targets: null, foods: {}, log: {}, favs: [], weights: {}, water: {}, meals: [], checkins: [],
-  prefs: { trainingOn: false, trainingGap: 200, water: 2500, dietBreak: false },
+  prefs: { trainingOn: false, trainingGap: 200, water: 2500, dietBreak: false, trendOnly: false },
 });
 
 /** Accepts saved data from any version of the app and fills in new fields. */
@@ -1318,7 +1318,7 @@ function progSetupModal() {
 
 function progCheckinModal() {
   const w = modal.week;
-  const kg = state.food.weights[todayISO()] ?? '';
+  const kg = state.food.prefs.trendOnly ? '' : state.food.weights[todayISO()] ?? '';
   return `${modalHead(`Week ${w} check-in`)}
     <form id="prog-ci-form" class="space-y-3">
       <p class="text-sm muted">Best done first thing in the morning, after the toilet and before eating.</p>
@@ -3016,6 +3016,7 @@ function waterCard() {
 }
 
 function weightCard() {
+  const hide = state.food.prefs.trendOnly;
   const series = weightSeries().filter((p) => p.date <= foodDate);
   const logged = state.food.weights[foodDate];
   const last = series[series.length - 1];
@@ -3028,9 +3029,11 @@ function weightCard() {
     ${last ? `<p class="mt-1 text-sm"><span class="muted">Trend</span> <b class="tabular-nums">${fmt(round1(last.trend))} kg</b>${rate !== null ? `<span class="muted"> · ${rate > 0 ? '+' : ''}${fmt(round2(rate))} kg a week</span>` : ''}</p>`
       : '<p class="mt-1 text-sm muted">Weigh in most mornings, after the toilet and before eating. The trend line smooths out day-to-day water swings, and after ~2 weeks of weigh-ins and food logging you’ll get weekly target check-ins.</p>'}
     <div class="mt-3 flex gap-2">
-      <input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" id="weight-input" placeholder="Weight in kg" value="${logged ?? ''}" aria-label="Weight for this day in kg">
+      <input class="input" type="number" inputmode="decimal" step="0.1" min="20" max="400" id="weight-input" placeholder="${hide && logged ? 'Logged ✓ (type to change)' : 'Weight in kg'}" value="${hide ? '' : logged ?? ''}" aria-label="Weight for this day in kg">
       <button class="btn-primary shrink-0" data-food="weight-save">${logged ? 'Update' : 'Log'}</button>
     </div>
+    <label class="mt-3 flex items-center justify-between gap-3 text-sm"><span><span class="font-medium">Show trend only</span><span class="block text-xs muted">Hides each day’s reading after you log it, so water swings don’t get to you.</span></span>
+      <input type="checkbox" class="h-6 w-6 shrink-0 accent-indigo-600" data-food-pref="trendOnly" ${hide ? 'checked' : ''}></label>
   </section>`;
 }
 
@@ -3041,27 +3044,27 @@ function weightModal() {
     <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">${series.slice().reverse().slice(0, 60).map((p) => `<li class="flex items-center justify-between gap-2 py-1.5">
       <span class="text-sm">${fmtDay(p.date)}</span>
       <span class="flex items-center gap-3">
-        <span class="font-semibold tabular-nums">${fmt(p.kg)} kg</span>
-        <span class="w-20 text-right text-xs tabular-nums muted">trend ${p.trend.toFixed(1)}</span>
+        ${state.food.prefs.trendOnly ? `<span class="font-semibold tabular-nums">trend ${p.trend.toFixed(1)} kg</span>` : `<span class="font-semibold tabular-nums">${fmt(p.kg)} kg</span>
+        <span class="w-20 text-right text-xs tabular-nums muted">trend ${p.trend.toFixed(1)}</span>`}
         <button class="icon-btn h-8 w-8" data-food="weight-del" data-date="${p.date}" aria-label="Delete ${fmtDay(p.date)} weigh-in">${ICON_X}</button>
       </span>
     </li>`).join('')}</ul>`;
 }
 
 /** Weigh-in dots plus the trend line, with a tap/hover readout. */
-function weightChart(pts) {
+function weightChart(pts, hide = state.food.prefs.trendOnly) {
   const W = 340, H = 170, pl = 36, pr = 10, pt = 10, pb = 22;
-  const vals = pts.flatMap((p) => [p.kg, p.trend]);
+  const vals = pts.flatMap((p) => (hide ? [p.trend] : [p.kg, p.trend]));
   const pad = Math.max(0.5, (Math.max(...vals) - Math.min(...vals)) * 0.15);
   const lo = Math.floor((Math.min(...vals) - pad) * 2) / 2, hi = Math.ceil((Math.max(...vals) + pad) * 2) / 2;
   const t0 = parseISO(pts[0].date).getTime(), t1 = parseISO(pts[pts.length - 1].date).getTime();
   const x = (d) => round2(pl + (t1 === t0 ? (W - pl - pr) / 2 : ((parseISO(d).getTime() - t0) / (t1 - t0)) * (W - pl - pr)));
   const y = (v) => round2(pt + (1 - (v - lo) / (hi - lo)) * (H - pt - pb));
   const ticks = [lo, (lo + hi) / 2, hi].map(round1);
-  const xy = pts.map((p) => ({ x: x(p.date), label: `${fmtDay(p.date)}: <b>${fmt(p.kg)} kg</b> <span class="muted">· trend ${fmt(round1(p.trend))} kg</span>` }));
+  const xy = pts.map((p) => ({ x: x(p.date), label: hide ? `${fmtDay(p.date)}: trend <b>${fmt(round1(p.trend))} kg</b>` : `${fmtDay(p.date)}: <b>${fmt(p.kg)} kg</b> <span class="muted">· trend ${fmt(round1(p.trend))} kg</span>` }));
   return `<div data-chart="weight" data-points="${esc(JSON.stringify(xy))}">
     <div class="mb-1 flex items-center gap-4 text-xs muted">
-      <span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>Daily weigh-in</span>
+      ${hide ? '' : '<span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rounded-full bg-slate-400"></span>Daily weigh-in</span>'}
       <span class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 rounded bg-indigo-500"></span>Trend</span>
     </div>
     <p class="mb-1 text-sm" data-readout>${xy[xy.length - 1].label}</p>
@@ -3071,7 +3074,7 @@ function weightChart(pts) {
       <text x="${pl}" y="${H - 6}" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmtShort(pts[0].date)}</text>
       <text x="${W - pr}" y="${H - 6}" font-size="10" text-anchor="end" class="fill-slate-500 dark:fill-slate-400">${fmtShort(pts[pts.length - 1].date)}</text>
       <line data-cross x1="0" x2="0" y1="${pt}" y2="${H - pb}" class="stroke-slate-400 dark:stroke-slate-500" stroke-width="1" visibility="hidden"/>
-      ${pts.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.kg)}" r="3" class="fill-slate-400 dark:fill-slate-500"/>`).join('')}
+      ${hide ? '' : pts.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.kg)}" r="3" class="fill-slate-400 dark:fill-slate-500"/>`).join('')}
       <path d="${pts.map((p, k) => `${k ? 'L' : 'M'}${x(p.date)},${y(p.trend)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>
   </div>`;
@@ -3666,7 +3669,8 @@ document.addEventListener('click', (e) => {
       const kg = parseFloat(document.getElementById('weight-input').value);
       if (!(kg >= 20 && kg <= 400)) return toast('Enter your weight in kg');
       state.food.weights[foodDate] = round1(kg);
-      saveState(); render(); toast('Weight logged');
+      saveState(); render();
+      if (state.food.prefs.trendOnly) { const tr = weightSeries().filter((x) => x.date <= foodDate).pop(); toast(`Logged. Trend: ${fmt(round1(tr.trend))} kg`); } else toast('Weight logged');
       return;
     }
     case 'weight-view': modal = { type: 'weight' }; renderModal(); return;
@@ -4265,6 +4269,7 @@ document.addEventListener('input', (e) => {
 
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset.foodPref) { state.food.prefs[el.dataset.foodPref] = el.checked; saveState(); render(); return; }
   // Typing reps and moving on (Done / next box) counts as finishing the set.
   if (el.dataset.field === 'reps' && parseInt(el.value, 10) > 0 && state.draft) { restAfterSet(Number(el.dataset.e), Number(el.dataset.s)); return; }
   if (el.dataset.libPick) {
