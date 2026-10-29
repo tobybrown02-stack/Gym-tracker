@@ -64,6 +64,17 @@ Tabs: Workout, Food, Plan, Stats, Exercises, History.
   than one step; reps + RIR < bottom of range → calibrate down; RPE ≤ 7.5 →
   aim +2 reps; RPE ≥ 9.5 → note that +1 is plenty. No RPE → plain double
   progression. `rebase()` uses RPE-aware e1RM (`e1rmRpe`).
+- **RPE formula mode** (`settings.progression`, default `'rpe'`; owner chose
+  it, with 1%/week, RPE wave and "go heavier"): `rpePredict()` runs first in
+  `predict()` for weighted (non-bodyweight) exercises whose last session has a
+  rated working set. e1RM = w × (1 + (reps + 10 − RPE)/30) (`ratedE1`, best
+  rated working set); after ≥2 earlier rated sessions it's clamped to −5%/+2.5%
+  of the previous one. Goal = e1RM × 1.01 (`RPE_GROWTH`). Target RPE for the
+  last set (`targetRpe`): programme weeks 1/2/3 of each block → 8/8.5/9, else
+  8. Reps(w) = round(30 × (goal/w − 1) − RIR); choose the heaviest load within
+  ±3 steps of last time that still reaches the bottom of the rep range; reps
+  clamped to the range; same reps every set. Otherwise falls back to double
+  progression below. Plateau also counts an RPE-e1RM gain (>0.5%) as progress.
 - Rest timer starts automatically on ✓ or when a reps box is committed
   (`change` event); 60 s after a warm-up, none mid-superset (`restAfterSet`).
 - Plateau: 3 sessions in a row without progress → offer ~10% deload (more

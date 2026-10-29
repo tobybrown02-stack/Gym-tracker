@@ -354,7 +354,7 @@ function sessionsFor(exId) {
  *         equipment increment, reset reps to the bottom of the range.
  * Rule 2: otherwise keep the weight and beat last session's rep total by ≥ 1.
  */
-function predict(ex) {
+function predict(ex, date = state.draft?.date || todayISO()) {
   const last = sessionsFor(ex.id).find((h) => !h.pdl && !h.test); // programme deload weeks and rep-max tests don't count
   const step = stepFor(ex);
 
@@ -368,6 +368,10 @@ function predict(ex) {
 
   const ev = evaluate(ex, last.sets);
   const { rpe, set: rpeSet } = lastRpe(last, ev);
+  if (state.settings.progression === 'rpe') {
+    const r = rpePredict(ex, last, ev, date);
+    if (r) return r;
+  }
 
   // Way off (e.g. still finding a starting weight): re-pick the weight from
   // the reps you had left, aiming for the bottom of the range with ~2 left.
@@ -438,6 +442,8 @@ function plateau(ex) {
     if (ss[i].deload || ss[i].pdl || ss[i].test) return null;
     const a = evaluate(ex, ss[i].sets), b = evaluate(ex, ss[i + 1].sets);
     if (harder(ex, a.top, b.top) || (a.top === b.top && a.total > b.total)) return null;
+    const ea = ratedE1(ex, ss[i]), eb = ratedE1(ex, ss[i + 1]);
+    if (state.settings.progression === 'rpe' && ea && eb && ea > eb * 1.005) return null; // stronger by the RPE estimate
   }
   const at = evaluate(ex, ss[0].sets).top;
   if (repsOnly(ex) || (isBW(ex) && !isAssisted(ex) && at <= 0)) return null; // nothing to take off
@@ -456,6 +462,55 @@ function lastRpe(h, ev) {
 }
 
 const floorToStep = (w, ex) => { const st = stepFor(ex); return round2(Math.max(0, st ? Math.floor(w / st) * st : w)); };
+
+
+// ---------- RPE formula progression (Settings → Progression) -------------
+const RPE_GROWTH = 0.01; // aim for ~1% stronger each week
+/** Target RPE for the last set: rises through each programme block (8 → 8.5 → 9). */
+function targetRpe(date) {
+  const w = progWeek(date);
+  return w ? [8, 8.5, 9, 8][(w - 1) % 4] : 8;
+}
+
+/** Best estimated max from a session's rated working sets (null if none rated). */
+function ratedE1(ex, h) {
+  const rated = evaluate(ex, h.sets).working.filter((x) => x.rpe);
+  return rated.length ? Math.max(...rated.map(e1rmRpe)) : null;
+}
+
+/**
+ * Estimated max = weight × (1 + (reps + reps left) ÷ 30), from the last
+ * session's rated sets. Goal = that +1%. Reps at weight w for the week's
+ * target RPE = 30 × (goal ÷ w − 1) − reps left; pick the heaviest weight
+ * (within 3 steps) that still reaches the bottom of the rep range.
+ * Weighted exercises only; bodyweight/assisted keep double progression.
+ */
+function rpePredict(ex, last, ev, date) {
+  if (isBW(ex) || !(ev.top > 0)) return null;
+  let e1 = ratedE1(ex, last);
+  if (!e1) return null;
+  // Once an exercise has a few rated sessions, one odd rating can only move the estimate a little.
+  const rated = sessionsFor(ex.id).filter((h) => !h.pdl && !h.test && h !== last && ratedE1(ex, h));
+  let capped = '';
+  if (rated.length >= 2) {
+    const prev = ratedE1(ex, rated[0]);
+    const lo = prev * 0.95, hi = prev * 1.025;
+    if (e1 > hi || e1 < lo) { e1 = Math.min(hi, Math.max(lo, e1)); capped = ' (capped so one session can’t swing it too far)'; }
+  }
+  const goal = e1 * (1 + RPE_GROWTH), rpeT = targetRpe(date), rir = 10 - rpeT, step = stepFor(ex);
+  const repsAt = (w) => Math.round(30 * (goal / w - 1) - rir);
+  const options = [];
+  for (let k = -3; k <= 3; k++) { const w = round2(ev.top + k * step); if (w > 0) options.push(w); }
+  let weight = options.filter((w) => repsAt(w) >= ex.repMin).pop();
+  if (weight === undefined) weight = options[0]; // even the lightest option is too heavy for the range
+  const n = Math.max(ex.repMin, Math.min(ex.repMax, repsAt(weight)));
+  const reps = Array(ex.sets).fill(n);
+  const src = [...ev.working].reverse().find((x) => x.rpe);
+  return {
+    rule: 'rpe', weight, reps, total: sum(reps), last, ev, rpeTarget: rpeT,
+    reason: `Estimated max ${fmt(round1(e1))} kg from ${fmt(src.weight)} kg × ${src.reps} at RPE ${fmt(src.rpe)}${capped}. Aiming 1% stronger: ${n} reps a set at ${loadLabel(ex, weight)}, with your last set around RPE ${fmt(rpeT)}.`,
+  };
+}
 
 // ---------- Records ------------------------------------------------------
 
@@ -536,7 +591,7 @@ function seedState() {
     history: [],
     routines: [{ id: uid(), name: 'Full Body', exerciseIds: exercises.map((e) => e.id) }],
     schedule: { weekly: {}, overrides: {} },
-    settings: { barWeight: 20 },
+    settings: { barWeight: 20, progression: 'rpe' },
     food: emptyFood(),
     body: { measures: {}, journey: null },
     programme: null,
@@ -557,7 +612,7 @@ function migrate(d) {
     history: d.history || [],
     routines: d.routines || [],
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
-    settings: { barWeight: 20, ...(d.settings || {}) },
+    settings: { barWeight: 20, progression: 'rpe', ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     body: { measures: {}, journey: null, ...(d.body || {}) },
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
@@ -710,6 +765,7 @@ const RULE_BADGE = {
   up:    ['Weight up',     'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'],
   reps:  ['Beat your reps', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
   deload: ['Deload week', 'bg-amber-500/15 text-amber-700 dark:text-amber-300'],
+  rpe: ['RPE target', 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'],
   calibrate: ['Weight adjusted', 'bg-sky-500/15 text-sky-700 dark:text-sky-300'],
   block: ['New block', 'bg-violet-500/15 text-violet-700 dark:text-violet-300'],
   test:  ['Rep-max test', 'bg-rose-500/15 text-rose-700 dark:text-rose-300'],
@@ -1035,7 +1091,7 @@ function progressHtml(entry, ex, p) {
   const ev = evaluate(ex, sets);
   if (p.rule === 'deload') return `<span class="muted">@ ${loadLabel(ex, ev.top)}: </span><b class="tabular-nums">${ev.total}</b><span class="muted"> reps · easy</span>`;
   if (p.rule === 'test') return `<span class="muted">Est. 1RM </span><b class="tabular-nums">${fmt(round1(bestE1(sets)))} kg</b>`;
-  if (ev.hitCeiling) {
+  if (ev.hitCeiling && p.rule !== 'rpe') {
     return `<span class="font-semibold text-emerald-700 dark:text-emerald-400">Ceiling hit → +${fmt(stepFor(ex))} kg next</span>`;
   }
   const sameWeight = ev.top === p.weight;
@@ -1122,7 +1178,7 @@ function lastTop(e) {
 /** Today's target: the block's progression, or the deload-week version of it. */
 function targetFor(ex, deload = !!state.draft?.pdl, date = state.draft?.date || todayISO()) {
   const e = progEx(ex, date);
-  const p = rebase(e, date) || predict(e);
+  const p = rebase(e, date) || predict(e, date);
   if (!deload) return p;
   const top = lastTop(e) ?? p.weight, step = stepFor(e);
   let weight = top;
@@ -2238,6 +2294,15 @@ function historyView() {
       <select class="input py-2" data-action="bar-weight">
         ${[20, 15, 10, 7.5].map((w) => `<option value="${w}" ${state.settings.barWeight === w ? 'selected' : ''}>${w} kg</option>`).join('')}
       </select>
+    </label>
+    <label class="block">
+      <span class="block font-medium">Progression</span>
+      <span class="block text-xs muted">How next session’s targets are worked out for weighted exercises. Bodyweight and assisted exercises always use double progression.</span>
+      <select class="input mt-2 py-2" data-action="progression">
+        <option value="rpe" ${state.settings.progression === 'rpe' ? 'selected' : ''}>RPE formula (recommended)</option>
+        <option value="double" ${state.settings.progression === 'double' ? 'selected' : ''}>Double progression</option>
+      </select>
+      <span class="mt-1 block text-xs muted">${state.settings.progression === 'rpe' ? 'Works out weight and reps from how hard your sets felt, aiming ~1% stronger each week. Log an RPE on at least the last set of each exercise; without one, that exercise falls back to double progression.' : 'Adds reps until the top of the range, then weight. RPE you log still nudges targets (e.g. +2 reps when it felt easy).'}</span>
     </label>
     ${dataSafetyHtml()}
     <button class="btn-danger w-full" data-action="reset">Erase all data</button>
@@ -3861,7 +3926,7 @@ function finishWorkout() {
     const items = prsFor(h);
     if (items.length) prs.push({ name: ex.name, items });
     const p = targetFor(ex, false, h.date);
-    if (p.rule === 'up') ups.push({ name: ex.name, label: loadLabel(ex, p.weight) });
+    if (p.rule === 'up' || (p.rule === 'rpe' && p.weight > p.ev.top)) ups.push({ name: ex.name, label: loadLabel(ex, p.weight) });
     if (!h.pdl && !h.test && plateau(progEx(ex, h.date))) stalls.push(ex.name);
   });
   state.draft = null;
@@ -4289,6 +4354,7 @@ document.addEventListener('change', (e) => {
     case 'stats-ex': statsExId = el.value; render(); return;
     case 'stats-muscle': statsMuscle = el.value; render(); return;
     case 'bar-weight': state.settings.barWeight = Number(el.value); break;
+    case 'progression': state.settings.progression = el.value; render(); break;
     case 'measure-date': modal.date = el.value || todayISO(); renderModal(); return;
     case 'prog-main-toggle': {
       if (modal?.type !== 'prog-main') return; // the setup form reads its ticks on submit
