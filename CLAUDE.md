@@ -85,8 +85,9 @@ remapping Tailwind's `slate` (neutrals), `indigo` (red accent), `violet`
 names. Each routine has a plate colour by position (`PLATE_COLORS`,
 `plateColor(r)`, `plateDot(r)`): red, blue, yellow, green, white. The
 12-week strip shows round "plates". `.eyebrow` = small red uppercase label.
-Home Screen icon (`icons/`, Oct 2026): a cream barbell loaded with red, blue
-and yellow bumper plates on warm black (made with PIL; maskable version has
+Home Screen icon (`icons/`, Oct 2026, owner picked option "C" of five): a red
+plate disc with a dark rim and a cream dumbbell on warm black, matching the
+header badge (made with PIL; maskable version has
 more padding). iOS only picks up a new icon when the app is removed and re-added
 to the Home Screen, which wipes that app's storage: always back up first and
 restore after.
