@@ -67,8 +67,9 @@ Tabs: Workout, Food, Plan, Stats, Exercises, History.
 - **RPE formula mode** (`settings.progression`, default `'rpe'`; owner chose
   it, with 1%/week, RPE wave and "go heavier"): `rpePredict()` runs first in
   `predict()` for weighted (non-bodyweight) exercises whose last session has a
-  rated working set. e1RM = w × (1 + (reps + 10 − RPE)/30) (`ratedE1`, best
-  rated working set); after ≥2 earlier rated sessions it's clamped to −5%/+2.5%
+  rated working set. e1RM = w × (1 + (reps + 10 − RPE)/30) (`ratedE1`, the LAST
+  rated working set only: the owner may rate every set, and earlier fresher
+  sets would inflate targets; `rebase()` uses it too); after ≥2 earlier rated sessions it's clamped to −5%/+2.5%
   of the previous one. Goal = e1RM × 1.01 (`RPE_GROWTH`). Target RPE for the
   last set (`targetRpe`): programme weeks 1/2/3 of each block → 8/8.5/9, else
   8. Reps(w) = round(30 × (goal/w − 1) − RIR); choose the heaviest load within
@@ -132,7 +133,7 @@ weight (also written into `food.weights` so charts span it), total lost,
 **Other workout features:** routines (max 5) + weekly schedule with one-off day
 overrides, rest timer, warm-ups and plate calculator, RPE/notes, PRs, swap
 exercise, supersets (`entry.ss`, remembered in `routine.links`), workout clock
-and summary, exercise library (`LIBRARY`), stats (sets per muscle, volume,
+and summary, exercise library (`LIBRARY`, ~160 entries incl. UK commercial-gym machines, plate-loaded and Smith variants; keep names unique), stats (sets per muscle, volume,
 e1RM/best-reps chart, nutrition summary, body measurements).
 
 **Food:** targets from Mifflin-St Jeor × activity ± goal, protein ~2 g/kg when
