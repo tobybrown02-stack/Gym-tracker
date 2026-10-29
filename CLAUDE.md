@@ -72,10 +72,33 @@ No test suite is committed. Test with Playwright (preinstalled; `require('playwr
   to test the auto rest timer.
 - Check at 390px wide (iPhone) in dark mode; screenshot and look.
 
+## Look ("Plate", chosen Oct 2026)
+
+The owner picked "Plate" from four trial looks (inspired by a friend's app,
+deliberately not a copy). Warm near-black / cream neutrals, bumper-plate red
+accent, **Anton** headings (h1/h2 and `.display`: uppercase, weight 400; never
+add `font-bold` to Anton, it fakes bold) over **Archivo** body text, from
+Google Fonts (cached by `sw.js`; fallbacks if offline). The palette is done by
+remapping Tailwind's `slate` (neutrals), `indigo` (red accent), `violet`
+(plate blue), `emerald` (plate green), `amber` (plate yellow) and `white` in
+`tailwind.config`, so existing classes pick it up; keep using those class
+names. Each routine has a plate colour by position (`PLATE_COLORS`,
+`plateColor(r)`, `plateDot(r)`): red, blue, yellow, green, white. The
+12-week strip shows round "plates". `.eyebrow` = small red uppercase label.
+Header subtitle shows the programme week (`#hdr-sub`, set in `render()`).
+Friend-style layout pieces: Today hero card with a plate-colour bar, tags and
+"Start workout"; `todayTiles()` (weight trend, sessions, calories left, next
+check-in); Plan tab week as a table (`planTable()`: day / session / status,
+done days named by muscles logged); Stats month calendar (`monthCard()`, top
+bar gym, bottom bar food with calories left half and protein right half via
+`foodDayRating()`: on target ±10% kcal / ≥95% protein, close, well off;
+planned days before the first logged workout aren't "missed").
+
 ## How the app works
 
 Tabs: Workout, Food, Plan, Stats, Exercises, History (History also holds
-Settings: bar weight, progression mode, storage, erase).
+Settings: bar weight, progression mode, storage, erase). Plus the plan builder
+screen (no tab).
 
 **Progression engine** — `predict(ex, date)` (call `targetFor()` in the UI):
 - Working sets = sets at the hardest load (heaviest; least assistance for
@@ -168,6 +191,30 @@ check-in that leg press / leg extension strength holds; if it drops over two
 check-ins, add leg sets.
 Routines can set their own set count per exercise (`routine.sets = {exId: n}`,
 carried into the draft as `entry.n`; use `entryEx()` / `routineEx()`).
+
+**Plan builder** (`view = 'builder'`, opened from the Plan tab card or an
+empty Workout tab; `state.planner = {answers, plan, step, main, savedAt}`):
+an 8-question questionnaire (about you, goal, experience, week/days/session
+time, muscle priorities grow/normal/keep + leg days, gym & style, joints and
+"never give me" list, recovery/lifestyle), then an **editable preview**
+(rename, change weekday, swap exercise per slot, ± sets, remove, add) that
+only changes anything on "Save this plan"; "Cancel plan" discards it. The owner
+asked for: detailed personal questions, preview first, edit before saving,
+able to cancel. Generator (`buildPlan()`): split from days (2–5, the routine
+limit) × leg-day choice (`B_SPLITS`, `B_TEMPLATES`); each template is a list
+of slots (`B_SLOTS`: chestPress, row, vPull, quad, lateral …) filled with the
+best-scoring candidate (`bCandidates()`: own exercises first, recently logged
+ones higher, then library; style/joint scores; `B_AVOID` and `B_JOINTS`
+filters, gym type); compounds first; added while the session estimate fits
+the time limit; then a balance pass moves weekly sets toward 14/10/6 per
+muscle (grow/normal/keep) × a recovery factor (`bRecovery`: sleep, stress,
+job, steps, cardio, experience, consistency, fat-loss goal; floor 0.7; max 4
+sets/exercise only for 2+ years and good recovery). Main lifts = one per big
+movement (`bMainLifts`). Saving replaces routines + weekly schedule (reuses
+old routine ids by position), clears overrides from today, sets
+`programme.main`, optionally copies age/height/weight to the food profile
+(targets unchanged), keeps history/programme. With the owner's answers it
+reproduces their current Push/Pull/Legs/Upper/Arms plan almost exactly.
 
 **Session length:** `sessionMinutes(routine, date)` ≈ 5 min warm-up + per
 exercise 1 min setup + (3 s/rep + 10 s) per set + rest after each set (15 s

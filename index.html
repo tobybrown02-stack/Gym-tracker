@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#020617">
+  <meta name="theme-color" content="#141210">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Overload">
@@ -17,11 +17,26 @@
       if (localStorage.getItem('pot.theme') === 'light') document.documentElement.classList.remove('dark');
     } catch (e) {}
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800&display=swap">
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   <script>
+    // "Plate" look: warm neutrals, bumper-plate red accent, Anton headings over Archivo.
+    // The palette is remapped here so every slate/indigo/emerald/amber class picks it up.
     if (window.tailwind) tailwind.config = {
       darkMode: 'class',
-      theme: { extend: { fontFamily: { sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] } } }
+      theme: { extend: {
+        fontFamily: { sans: ['Archivo', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'], display: ['Anton', 'Impact', 'Haettenschweiler', 'Arial Narrow', 'sans-serif'] },
+        colors: {
+          white: '#fffdf8',
+          slate: { 50: '#f6f1e7', 100: '#efe8da', 200: '#ddd3c1', 300: '#c9bda8', 400: '#a39a8c', 500: '#857b6c', 600: '#665d50', 700: '#463f36', 800: '#302b25', 900: '#1e1b18', 950: '#141210' },
+          indigo: { 50: '#fdecea', 100: '#fbd5d0', 200: '#f7b0a7', 300: '#f2877a', 400: '#ec5f50', 500: '#e23b2e', 600: '#cf2f22', 700: '#ac2519', 800: '#8a1f15', 900: '#6f1b13', 950: '#3c0b07' },
+          emerald: { 50: '#ecf8ef', 100: '#d2f0da', 200: '#a6e1b5', 300: '#72cd8b', 400: '#47b968', 500: '#2fa84f', 600: '#238a3f', 700: '#1c6e33', 800: '#18572b', 900: '#144825', 950: '#0a2814' },
+          amber: { 50: '#fefae6', 100: '#fdf2bf', 200: '#fbe68a', 300: '#f7d84f', 400: '#f3cb2a', 500: '#f0c419', 600: '#c99d0c', 700: '#9c760d', 800: '#7e5e12', 900: '#694d14', 950: '#3d2b07' },
+          violet: { 50: '#eaf1fd', 100: '#d3e2fb', 200: '#a9c6f6', 300: '#78a6f0', 400: '#4d88e8', 500: '#2f6fe0', 600: '#2459c2', 700: '#1f479b', 800: '#1d3d7e', 900: '#1c3567', 950: '#122143' },
+        },
+      } }
     };
   </script>
   <style type="text/tailwindcss">
@@ -51,6 +66,11 @@
       .nav-btn { @apply flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold text-slate-500 transition dark:text-slate-400; }
       .nav-btn.active { @apply text-indigo-600 dark:text-indigo-400; }
       .tile { @apply rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900; }
+      .display { @apply font-display font-normal uppercase tracking-wide; }
+      .eyebrow { @apply text-xs font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400; }
+    }
+    @layer base {
+      h1, h2 { @apply font-display font-normal uppercase tracking-wide; }
     }
     input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
@@ -60,12 +80,12 @@
   <header class="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
     <div class="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
       <div class="flex items-center gap-2">
-        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white">
+        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-indigo-600/20">
           <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>
         </div>
         <div>
-          <h1 class="text-base font-bold leading-tight">Overload Tracker</h1>
-          <p class="text-xs muted leading-tight">Double progression, automated</p>
+          <h1 class="text-2xl leading-none">Overload<span class="text-indigo-500">.</span></h1>
+          <p class="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] muted leading-tight" id="hdr-sub">Train with a plan</p>
         </div>
       </div>
       <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle light/dark mode">
@@ -688,6 +708,7 @@ function seedState() {
     body: { measures: {}, journey: null },
     programme: null,
     pastProgrammes: [],
+    planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null },
     draft: null,
   };
 }
@@ -709,6 +730,7 @@ function migrate(d) {
     body: { measures: {}, journey: null, ...(d.body || {}) },
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
+    planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null, ...(d.planner || {}) },
     draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, test: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -735,10 +757,15 @@ let planWeek = weekStart(todayISO());
 let statsWeek = weekStart(todayISO());
 let statsExId = null;
 let statsMuscle = 'Back';
+let statsMonth = todayISO().slice(0, 7); // YYYY-MM shown in the month calendar
 let lib = { query: '', eq: '', muscle: '', step: 4, picked: new Map() }; // library browser state
 
 const exById = (id) => state.exercises.find((e) => e.id === id);
 const routineById = (id) => state.routines.find((r) => r.id === id);
+// Each routine gets a bumper-plate colour by its position: red, blue, yellow, green, white.
+const PLATE_COLORS = ['bg-indigo-500', 'bg-violet-500', 'bg-amber-500', 'bg-emerald-500', 'bg-slate-100 ring-1 ring-inset ring-slate-400'];
+const plateColor = (r) => PLATE_COLORS[Math.max(0, state.routines.indexOf(r)) % PLATE_COLORS.length];
+const plateDot = (r, size = 'h-2.5 w-2.5') => (r ? `<span class="inline-block shrink-0 rounded-full ${size} ${plateColor(r)}" aria-hidden="true"></span>` : '');
 
 // ---------- Schedule -----------------------------------------------------
 
@@ -874,8 +901,10 @@ const ICON_EDIT = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="
 const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function render() {
+  const pw = state.programme && progWeek(todayISO());
+  document.getElementById('hdr-sub').textContent = pw ? `Week ${pw} of ${PROG_WEEKS} · ${pw % 4 ? BLOCKS[blockOf(pw)].name : 'Deload'}` : 'Train with a plan';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView };
+  const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView, builder: builderView };
   document.getElementById('view').innerHTML = (view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
   if (view === 'exercises') syncMachineToggle();
   if (view === 'stats') { attachCharts(); attachWeightChart(); }
@@ -897,7 +926,7 @@ function weekStrip(start) {
     const d = addDays(start, i);
     const r = plannedRoutine(d);
     const st = dayStatus(d);
-    const label = { done: '✓ Done', missed: 'Missed', planned: r ? r.name : '', rest: 'Rest' }[st];
+    const label = { done: '✓ Done', missed: 'Missed', planned: r ? r.name.replace(/^\d+\s*·\s*/, '') : '', rest: 'Rest' }[st];
     const tone = {
       done: 'text-emerald-700 dark:text-emerald-400',
       missed: 'text-rose-600 dark:text-rose-400',
@@ -908,10 +937,44 @@ function weekStrip(start) {
     return `<button class="flex min-w-0 flex-col items-center rounded-xl border px-0.5 py-2 transition active:scale-95 ${d === today ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}"
         data-action="open-day" data-date="${d}" aria-label="${fmtDay(d)}: ${esc(label)}">
       <span class="text-[10px] font-semibold uppercase muted">${name}</span>
-      <span class="text-base font-bold tabular-nums">${parseISO(d).getDate()}</span>
+      <span class="flex items-center gap-1 text-base font-bold tabular-nums">${parseISO(d).getDate()}${st === 'planned' || st === 'missed' ? plateDot(r, 'h-1.5 w-1.5') : ''}</span>
       <span class="mt-0.5 w-full truncate px-0.5 text-center text-[10px] font-semibold leading-4 ${tone}">${esc(label)}${moved ? '*' : ''}</span>
     </button>`;
   }).join('')}</div>`;
+}
+
+/** Four headline numbers under today's card: weight trend, sessions, calories left, next check-in. */
+function todayTiles(today) {
+  const ws = weekStart(today), tiles = [];
+  const series = weightSeries(), last = series[series.length - 1];
+  const goal = state.programme?.goalKg ?? state.body.journey?.goal;
+  if (last) {
+    const start = state.body.journey?.kg ?? series[0].kg;
+    const pct = goal && start > goal ? Math.max(2, Math.min(100, ((start - last.trend) / (start - goal)) * 100)) : null;
+    tiles.push(`<p class="label">Weight trend</p><p class="display text-3xl leading-none tabular-nums">${fmt(round1(last.trend))}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">kg</span></p>
+      ${pct !== null ? `<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><div class="h-full rounded-full bg-indigo-500" style="width:${pct}%"></div></div><p class="mt-1 text-xs muted">${fmt(round1(Math.max(0, last.trend - goal)))} kg to ${fmt(goal)} kg</p>` : '<p class="mt-1 text-xs muted">Smoothed average</p>'}`);
+  }
+  const planned = DAYS.filter((_, i) => plannedRoutine(addDays(ws, i))).length;
+  const trained = new Set(state.history.filter((h) => h.date >= ws && h.date <= addDays(ws, 6)).map((h) => h.date)).size;
+  if (planned || trained) tiles.push(`<p class="label">This week</p><p class="display text-3xl leading-none tabular-nums">${trained}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">/ ${planned} sessions</span></p>
+    <div class="mt-2 flex gap-1">${DAYS.map((_, i) => { const d = addDays(ws, i), r = plannedRoutine(d), st = dayStatus(d); return r || st === 'done' ? `<span class="h-3 w-3 rounded-full ${st === 'done' ? 'bg-emerald-500' : r ? plateColor(r) + ' opacity-35' : ''}"></span>` : ''; }).join('')}</div>`);
+  const t = targetsFor(today);
+  if (t) {
+    const left = t.kcal - dayTotals(today).kcal, pLeft = t.protein - dayTotals(today).protein;
+    tiles.push(`<p class="label">Calories left</p><p class="display text-3xl leading-none tabular-nums ${left < 0 ? 'text-rose-500' : ''}">${fmtKg(Math.abs(left))}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">${left < 0 ? 'kcal over' : 'kcal'}</span></p>
+      <p class="mt-1 text-xs muted">${pLeft > 0 ? `${fmtKg(pLeft)} g protein to go` : 'Protein hit ✓'}${t.dayType ? ` · ${t.dayType} day` : ''}</p>`);
+  }
+  const p = state.programme;
+  if (p) {
+    const due = dueCheckin(), next = PROG_CHECKS.find((n) => !progCheckin(n) && checkinDate(n) > today);
+    if (due) tiles.push(`<p class="label">Check-in</p><p class="display text-3xl leading-none text-indigo-600 dark:text-indigo-400">Due now</p><button class="link mt-1 text-xs" data-action="prog-checkin" data-week="${due}">Do week ${due} check-in</button>`);
+    else if (next) { const cd = checkinDate(next); tiles.push(`<p class="label">Next check-in</p><p class="display text-3xl leading-none tabular-nums">${DAYS[dow(cd)]} ${parseISO(cd).getDate()}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">${parseISO(cd).toLocaleDateString('en-GB', { month: 'short' })}</span></p><p class="mt-1 text-xs muted">End of week ${next}</p>`); }
+  }
+  if (tiles.length < 2) return '';
+  const list = tiles.length === 3 ? tiles.slice(0, 2) : tiles;
+  return `<section class="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800">
+    ${list.map((x) => `<div class="min-w-0 bg-white p-3 dark:bg-slate-900">${x}</div>`).join('')}
+  </section>`;
 }
 
 // ----- Workout tab -----
@@ -933,17 +996,25 @@ function todayView() {
   if (!active) {
     const r = plannedRoutine(today);
     const doneToday = state.history.some((h) => h.date === today);
-    html += `<section class="card mb-4">
-      <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Today · ${fmtDay(today)}</p>`;
+    html += `<section class="card relative mb-4 overflow-hidden pl-7">
+      <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full ${r && !doneToday ? plateColor(r) : doneToday ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}" aria-hidden="true"></span>
+      <p class="eyebrow">Today · ${fmtDay(today)}</p>`;
     if (doneToday) {
-      html += `<h2 class="mt-1 text-2xl font-bold">Workout logged ✓</h2>
-        <p class="mt-1 text-sm muted">Nice work. Check your progress in Stats, or log more below.</p>`;
+      html += `<h2 class="mt-1 text-4xl leading-none">Workout logged ✓</h2>
+        <p class="mt-2 text-sm muted">Nice work. Check your progress in Stats, or log more below.</p>`;
     }
     if (r && !doneToday) {
-      html += `<h2 class="mt-1 text-2xl font-bold">${esc(r.name)}</h2>
-        ${minutesHtml(r, today, dl)}
+      const w = progWeek(today), exs = r.exerciseIds.map(exById).filter(Boolean);
+      const reps = w ? (dl ? 'Deload' : BLOCKS[blockOf(w)].reps.replace(' on main lifts', ' main lifts')) : '';
+      html += `<h2 class="mt-1 text-[2.6rem] leading-[0.95]">${esc(r.name)}</h2>
+        <div class="mt-3 flex flex-wrap gap-1.5">
+          ${reps ? `<span class="badge bg-indigo-500/10 text-indigo-700 ring-1 ring-inset ring-indigo-500/40 dark:text-indigo-300">${reps}</span>` : ''}
+          <span class="badge bg-slate-100 dark:bg-slate-800">${exs.length} exercise${exs.length === 1 ? '' : 's'}</span>
+          <span class="badge bg-slate-100 dark:bg-slate-800">≈ ${sessionMinutes(r, today, dl)} min</span>
+        </div>
+        ${sessionMinutes(r, today, dl) > 60 ? `<p class="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-300">Over your hour. Shorter rests on isolation exercises (60–90 s) or pairing two into a superset will bring it down.</p>` : ''}
         <ul class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">
-          ${r.exerciseIds.map(exById).filter(Boolean).map((ex) => {
+          ${exs.map((ex) => {
             const p = targetFor(routineEx(r, ex), dl);
             return `<li class="flex items-center justify-between gap-3 py-2">
               <span class="min-w-0 truncate font-medium">${esc(ex.name)}</span>
@@ -951,12 +1022,14 @@ function todayView() {
             </li>`;
           }).join('')}
         </ul>
-        <button class="btn-primary mt-3 w-full" data-action="start-routine" data-id="${r.id}">Start ${esc(r.name)}</button>`;
+        <button class="btn-primary display mt-3 w-full text-lg tracking-[0.08em]" data-action="start-routine" data-id="${r.id}">Start workout →</button>`;
     } else if (!doneToday) {
-      html += `<h2 class="mt-1 text-2xl font-bold">Rest day</h2>
-        <p class="mt-1 text-sm muted">${state.routines.length ? 'Nothing scheduled. Recover, or start a workout below.' : 'Create routines and a weekly schedule in the Plan tab.'}</p>`;
+      html += `<h2 class="mt-1 text-4xl leading-none">Rest day</h2>
+        <p class="mt-2 text-sm muted">${state.routines.length ? 'Nothing scheduled. Recover, or start a workout below.' : 'Create routines and a weekly schedule in the Plan tab, or build a plan from a questionnaire.'}</p>
+        ${state.routines.length ? '' : '<button class="btn-primary mt-3 w-full" data-action="builder-open">Build my plan</button>'}`;
     }
     html += `</section>`;
+    html += todayTiles(today);
     const lastWeek = addDays(weekStart(today), -7);
     if (dow(today) <= 1 && !snoozed(`recap-${lastWeek}`)) html += recapHtml(lastWeek, true); // Monday & Tuesday
 
@@ -971,7 +1044,7 @@ function todayView() {
     const r = routineById(d.routineId);
     html += `<section class="mb-4 flex items-end justify-between gap-3">
       <div class="min-w-0">
-        <h2 class="truncate text-2xl font-bold">${r ? esc(r.name) : 'Today’s workout'}</h2>
+        <h2 class="truncate text-3xl">${r ? esc(r.name) : 'Today’s workout'}</h2>
         <p class="text-sm muted">${d.pdl ? 'Deload targets' : 'Targets come from your last session'}${d.startedAt ? ` · <span id="workout-clock" class="font-semibold">${clockText(d)}</span>` : ''}</p>
       </div>
       <input type="date" class="input w-auto py-2 text-sm" data-action="draft-date" value="${d.date}" aria-label="Workout date">
@@ -1377,7 +1450,7 @@ function programmeCard() {
   const cells = Array.from({ length: PROG_WEEKS }, (_, i) => {
     const n = i + 1, deload = n % 4 === 0;
     return `<div class="relative">
-      <div class="flex h-7 items-center justify-center rounded-md text-[11px] font-bold text-white ${deload ? 'bg-amber-500' : BLOCKS[blockOf(n)].cell} ${n < shown ? 'opacity-90' : n === shown ? 'ring-2 ring-slate-900 ring-offset-1 ring-offset-white dark:ring-white dark:ring-offset-slate-900' : 'opacity-35'}">${n}</div>
+      <div class="mx-auto flex aspect-square w-full max-w-[2rem] items-center justify-center rounded-full text-[11px] font-bold ${deload ? 'bg-amber-500 text-slate-950' : BLOCKS[blockOf(n)].cell + ' text-white'} ${n < shown ? 'opacity-90' : n === shown ? 'ring-2 ring-slate-900 ring-offset-1 ring-offset-white dark:ring-white dark:ring-offset-slate-900' : 'opacity-35'}">${n}</div>
       ${PROG_CHECKS.includes(n) ? `<p class="mt-0.5 text-center text-[10px] leading-3 ${progCheckin(n) ? 'text-emerald-600 dark:text-emerald-400' : 'muted'}">${progCheckin(n) ? '✓' : '●'}</p>` : ''}
     </div>`;
   }).join('');
@@ -1405,7 +1478,7 @@ function programmeCard() {
     </div>
     ${head}
     <div class="mt-3 grid grid-cols-12 gap-1">${cells}</div>
-    <p class="mt-1 flex flex-wrap gap-x-3 text-[11px] muted">${[1, 2, 3].map((b) => `<span><span class="inline-block h-2 w-2 rounded-sm ${BLOCKS[b].dot}"></span> ${BLOCKS[b].name}</span>`).join('')}<span><span class="inline-block h-2 w-2 rounded-sm bg-amber-500"></span> Deload</span><span>● check-in</span></p>
+    <p class="mt-1 flex flex-wrap gap-x-3 text-[11px] muted">${[1, 2, 3].map((b) => `<span><span class="inline-block h-2 w-2 rounded-full ${BLOCKS[b].dot}"></span> ${BLOCKS[b].name}</span>`).join('')}<span><span class="inline-block h-2 w-2 rounded-full bg-amber-500"></span> Deload</span><span>● check-in</span></p>
     ${w ? `<p class="mt-3 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">${weekTip(w)}</p>
       <p class="mt-2 text-sm"><span class="muted">This week:</span> <b>${trained}</b><span class="muted"> of ${planned} planned session${planned === 1 ? '' : 's'} done</span></p>` : ''}
     <button class="mt-2 block w-full text-left text-sm" data-action="prog-main"><span class="muted">Main lifts:</span> ${mains.length ? mains.map((e) => esc(e.name)).join(', ') : '<span class="muted">none</span>'} <span class="link text-xs">Change</span></button>
@@ -1843,14 +1916,506 @@ function newPlanCard() {
     </div>
   </section>`;
 }
+// ----- Plan builder (questionnaire → editable plan → save) -----
+// Answers live in state.planner.answers; the plan being edited in
+// state.planner.plan ({ days: [{ dow, name, tpl, items: [{ key, slot, sets }] }] }).
+// Nothing in routines or the schedule changes until "Save this plan".
+const B_STEPS = ['intro', 'you', 'goal', 'experience', 'week', 'muscles', 'gym', 'body', 'recovery'];
+const B_GROUPS = [['Chest', ['Chest']], ['Back', ['Back']], ['Shoulders', ['Shoulders']], ['Arms', ['Biceps', 'Triceps']], ['Legs', ['Quads', 'Hamstrings']], ['Glutes', ['Glutes']], ['Calves', ['Calves']], ['Core', ['Core']]];
+const B_LEVELS = [['grow', 'Grow more'], ['normal', 'Normal'], ['keep', 'Just keep']];
+const B_VOL = { grow: 14, normal: 10, keep: 6 }; // weekly working sets aimed for
+const B_AVOID = [
+  ['squat', 'Squats (any kind)', (c) => /squat/i.test(c.name)],
+  ['hinge', 'Deadlifts & hinges', (c) => /deadlift|rdl|good morning/i.test(c.name)],
+  ['dbpress', 'Dumbbell presses', (c) => c.type === 'dumbbell' && /press/i.test(c.name)],
+  ['barbell', 'Barbell lifts', (c) => c.type === 'barbell'],
+  ['lunge', 'Lunges, split squats & step-ups', (c) => /lunge|split squat|step-up/i.test(c.name)],
+  ['overhead', 'Overhead pressing', (c) => /shoulder press|overhead press|arnold|landmine press/i.test(c.name)],
+  ['dips', 'Dips', (c) => /dip/i.test(c.name)],
+  ['pullup', 'Unassisted pull-ups & chin-ups', (c) => c.type === 'bodyweight' && c.bwMode !== 'assisted' && /pull-up|chin-up/i.test(c.name)],
+];
+const B_JOINTS = [
+  ['hypermobile', 'Hypermobility', /dip|upright row/i, 'Machines first. Lower slowly, stop just short of locking elbows and knees, and keep leg press and hip thrust at RPE 8–9.'],
+  ['back', 'Lower back', /deadlift|rdl|good morning|barbell row|t-bar|back extension|reverse hyper|front squat|back squat|overhead press/i, 'Rows are chest-supported or cable so your lower back stays out of it.'],
+  ['knees', 'Knees', /squat|lunge|step-up|nordic|sissy/i, 'Leg extensions: controlled, not too heavy, and stop if it aches.'],
+  ['shoulders', 'Shoulders', /dip|upright row|overhead press|barbell bench|arnold|behind/i, 'Pressing is on machines with a neutral path; skip anything that pinches.'],
+  ['elbows', 'Elbows', /skull|close-grip|ez-bar overhead/i, 'Tricep work uses cables and machines rather than skull crushers.'],
+  ['wrists', 'Wrists', /barbell curl|ez-bar|push-up|front squat/i, 'Curls use dumbbells, cables or machines so your wrists can turn naturally.'],
+  ['hips', 'Hips', /squat|lunge|split|adduct/i, 'Leg work stays on machines with a comfortable range.'],
+];
+// Exercise slots: what each part of a session needs. g = muscle group for priorities; c = compound.
+const B_SLOTS = {
+  chestPress: { g: 'Chest', c: 1, t: (x) => x.muscles.Chest === 1 && /press|push-up/i.test(x.name) && !/incline|decline/i.test(x.name) },
+  chest2: { g: 'Chest', c: 1, t: (x) => x.muscles.Chest === 1 && /incline/i.test(x.name) && /press/i.test(x.name) },
+  chestFly: { g: 'Chest', t: (x) => x.muscles.Chest === 1 && /fly|pec deck|crossover/i.test(x.name) && !/rear|reverse/i.test(x.name) },
+  shoulderPress: { g: 'Shoulders', c: 1, t: (x) => x.muscles.Shoulders === 1 && /press/i.test(x.name) },
+  lateral: { g: 'Shoulders', t: (x) => x.muscles.Shoulders === 1 && /lateral|y-raise/i.test(x.name) },
+  rearDelt: { g: 'Shoulders', t: (x) => x.muscles.Shoulders === 1 && /rear|reverse pec|face pull/i.test(x.name) },
+  vPull: { g: 'Back', c: 1, t: (x) => x.muscles.Back === 1 && /pulldown|pull-up|pull up|chin/i.test(x.name) && !/straight-arm/i.test(x.name) },
+  back2: { g: 'Back', c: 1, t: (x) => x.muscles.Back === 1 && /pulldown|row|pull-up|pull up|chin/i.test(x.name) && !/upright|straight-arm/i.test(x.name) },
+  row: { g: 'Back', c: 1, t: (x) => x.muscles.Back === 1 && /row/i.test(x.name) && !/upright/i.test(x.name) },
+  biceps: { g: 'Arms', t: (x) => x.muscles.Biceps === 1 && /curl/i.test(x.name) && !/hammer|preacher/i.test(x.name) },
+  biceps2: { g: 'Arms', t: (x) => x.muscles.Biceps === 1 && /hammer|preacher/i.test(x.name) },
+  triPush: { g: 'Arms', t: (x) => x.muscles.Triceps === 1 && /pushdown|dip machine|extension machine/i.test(x.name) },
+  triOver: { g: 'Arms', t: (x) => x.muscles.Triceps === 1 && /overhead|skull|kickback/i.test(x.name) },
+  quad: { g: 'Legs', c: 1, t: (x) => x.muscles.Quads === 1 && /leg press|hack|squat|lunge|step-up/i.test(x.name) && !/calf|single-leg/i.test(x.name) },
+  glute: { g: 'Glutes', c: 1, t: (x) => x.muscles.Glutes === 1 && /hip thrust|glute bridge/i.test(x.name) },
+  hinge: { g: 'Legs', c: 1, t: (x) => x.muscles.Hamstrings === 1 && /romanian|deadlift|back extension|pull-through/i.test(x.name) },
+  quadIso: { g: 'Legs', t: (x) => x.muscles.Quads === 1 && /leg extension/i.test(x.name) && !/single/i.test(x.name) },
+  hamCurl: { g: 'Legs', t: (x) => x.muscles.Hamstrings === 1 && /leg curl/i.test(x.name) },
+  abductor: { g: 'Glutes', t: (x) => x.muscles.Glutes === 1 && /abduct/i.test(x.name) },
+  calves: { g: 'Calves', t: (x) => x.muscles.Calves === 1 },
+  core: { g: 'Core', t: (x) => x.muscles.Core === 1 },
+};
+const B_TEMPLATES = {
+  push: ['Push', ['chestPress', 'shoulderPress', 'chestFly', 'lateral', 'triPush', 'triOver', 'chest2']],
+  pull: ['Pull', ['vPull', 'row', 'back2', 'rearDelt', 'biceps', 'biceps2', 'core']],
+  legs: ['Legs', ['quad', 'glute', 'hinge', 'quadIso', 'hamCurl', 'abductor', 'calves', 'core']],
+  upper: ['Upper', ['chestPress', 'row', 'vPull', 'shoulderPress', 'chestFly', 'lateral', 'biceps', 'triPush']],
+  lower: ['Lower', ['quad', 'hinge', 'glute', 'hamCurl', 'quadIso', 'calves', 'abductor', 'core']],
+  full: ['Full body', ['chestPress', 'row', 'quad', 'shoulderPress', 'vPull', 'hamCurl', 'lateral', 'biceps', 'triPush', 'calves']],
+  arms: ['Arms & delts', ['lateral', 'rearDelt', 'biceps', 'triPush', 'biceps2', 'triOver', 'core']],
+  topup: ['Arms, delts & top-up', ['lateral', 'rearDelt', 'biceps', 'triPush', 'quadIso', 'hamCurl', 'calves']],
+};
+const B_SPLITS = { // [days][leg days] → templates
+  2: { one: ['full', 'full'], topup: ['full', 'full'], two: ['full', 'full'] },
+  3: { one: ['push', 'pull', 'legs'], topup: ['push', 'pull', 'legs'], two: ['upper', 'lower', 'full'] },
+  4: { one: ['push', 'pull', 'legs', 'upper'], topup: ['upper', 'legs', 'upper', 'topup'], two: ['upper', 'lower', 'upper', 'lower'] },
+  5: { one: ['push', 'pull', 'legs', 'upper', 'arms'], topup: ['push', 'pull', 'legs', 'upper', 'topup'], two: ['upper', 'lower', 'push', 'pull', 'legs'] },
+};
+
+function builderDefaults() {
+  const fp = state.food.profile || {}, latest = Object.keys(state.food.weights).sort().pop();
+  const days = Object.keys(state.schedule.weekly).map(Number).filter((i) => routineById(state.schedule.weekly[i])).sort();
+  return {
+    sex: fp.sex || 'male', age: fp.age || '', height: fp.height || '', weight: latest ? state.food.weights[latest] : fp.weight || '',
+    goalKg: state.programme?.goalKg ?? state.body.journey?.goal ?? '',
+    goal: 'recomp', years: '2-4', consistent: 'mostly', rpe: 'some',
+    days: days.length >= 2 && days.length <= 5 ? days : [0, 2, 4], minutes: 60,
+    levels: Object.fromEntries(B_GROUPS.map(([g]) => [g, 'normal'])), legDays: 'topup',
+    gym: 'commercial', style: 'machines', keepMine: true,
+    joints: [], avoid: [], notes: '',
+    sleep: '7-8', stress: 'medium', job: 'desk', steps: '5-8', cardio: 'none',
+  };
+}
+
+const bAns = () => state.planner.answers;
+
+/** Every exercise the builder can use: yours first, then library ones you don't have yet. */
+function bCandidates(all = false) {
+  const a = bAns(), since = addDays(todayISO(), -90);
+  const own = state.exercises.map((e) => ({ key: `own:${e.id}`, id: e.id, name: e.name, type: e.type, bwMode: e.bwMode, repMin: e.repMin, repMax: e.repMax, rest: e.rest, muscles: e.muscles || {}, owned: true,
+    recent: state.history.some((h) => h.exerciseId === e.id && h.date >= since) }));
+  const names = new Set(own.map((c) => normName(c.name)));
+  const libs = LIBRARY.filter((it) => !names.has(normName(it.name))).map((it, i) => ({ key: `lib:${it.name}`, name: it.name, type: it.type, bwMode: it.bwMode, repMin: it.repMin, repMax: it.repMax, rest: it.rest, muscles: it.muscles, owned: false, order: i }));
+  const blocked = (c) => B_AVOID.some(([k, , f]) => a.avoid.includes(k) && f(c)) || B_JOINTS.some(([k, , re]) => a.joints.includes(k) && re.test(c.name))
+    || (a.gym === 'home' && (c.type === 'machine' || c.type === 'barbell'))
+    || (a.gym === 'small' && /plate-loaded|hack|donkey|glute kickback machine|reverse hyper|rotary|high row|t-bar|meadows|glute-ham/i.test(c.name));
+  const machineLike = (c) => c.type === 'machine' || c.bwMode === 'assisted';
+  const style = { machines: (c) => (machineLike(c) ? 3 : c.type === 'dumbbell' ? 1 : c.type === 'barbell' ? -2 : 0), mix: (c) => (c.type === 'bodyweight' && c.bwMode !== 'assisted' ? 0 : 1), free: (c) => (c.type === 'barbell' || c.type === 'dumbbell' ? 2 : 0) }[a.style];
+  const joint = a.joints.length ? (c) => (machineLike(c) ? 1 : 0) : () => 0;
+  return [...own, ...libs].filter((c) => all || !blocked(c)).map((c) => ({ ...c, score: style(c) + joint(c) + (a.keepMine && c.owned ? 3 + (c.recent ? 2 : 0) : 0) - (c.order || 0) * 0.001 }));
+}
+const bEqLabel = (c) => ({ machine: 'Machine', dumbbell: 'Dumbbell', barbell: 'Barbell' }[c.type] || (c.bwMode === 'assisted' ? 'Assisted machine' : 'Bodyweight'));
+const bMap = (cands) => Object.fromEntries(cands.map((c) => [c.key, c]));
+const bOptions = (slot, cands) => cands.filter(B_SLOTS[slot].t).sort((x, y) => y.score - x.score);
+
+/** Recovery and experience scale the weekly volume; returns { f, maxSets, why[] }. */
+function bRecovery(a) {
+  let f = 1; const why = [];
+  if (a.sleep === '<6') { f -= 0.15; why.push('short sleep'); } else if (a.sleep === '6-7') f -= 0.05;
+  if (a.stress === 'high') { f -= 0.1; why.push('high stress'); }
+  if (a.job === 'manual') { f -= 0.05; why.push('a physical job'); }
+  if (a.steps === '12+') f -= 0.05;
+  if (a.cardio === '3+') { f -= 0.05; why.push('regular cardio'); }
+  if (a.years === '<1') { f -= 0.15; why.push('being newer to training'); }
+  if (a.consistent === 'onoff') { f -= 0.1; why.push('training on and off lately'); }
+  if (a.goal === 'fat') f -= 0.05;
+  f = Math.max(0.7, Math.round(f * 100) / 100);
+  return { f, maxSets: ['2-4', '4+'].includes(a.years) && f >= 0.9 ? 4 : 3, why };
+}
+
+const bLevel = (slot) => bAns().levels[B_SLOTS[slot]?.g] || 'normal';
+function bExSecs(c, sets) {
+  const reps = ((c.repMin || 8) + (c.repMax || 12)) / 2;
+  return 60 + sets * (reps * 3 + 10) + sets * (c.rest || 90);
+}
+const bDaySecs = (day, map) => 5 * 60 + sum(day.items.map((it) => (map[it.key] ? bExSecs(map[it.key], it.sets) : 0)));
+
+/** Build the whole plan from the answers. */
+function buildPlan() {
+  const a = bAns(), cands = bCandidates(), map = bMap(cands), rec = bRecovery(a);
+  const days = [...a.days].sort((x, y) => x - y), limit = a.minutes * 60;
+  const tpls = B_SPLITS[days.length][a.legDays];
+  const rank = { grow: 0, normal: 1, keep: 2 };
+  const plan = { days: tpls.map((tpl, k) => {
+    const slots = B_TEMPLATES[tpl][1];
+    const order = [...slots].sort((x, y) => (B_SLOTS[y].c || 0) - (B_SLOTS[x].c || 0) || rank[bLevel(x)] - rank[bLevel(y)] || slots.indexOf(x) - slots.indexOf(y));
+    const day = { dow: days[k], name: `${k + 1} · ${B_TEMPLATES[tpl][0]}`, tpl, items: [] };
+    order.forEach((slot) => {
+      const pick = bOptions(slot, cands).find((c) => !day.items.some((it) => it.key === c.key));
+      if (!pick) return;
+      const sets = bLevel(slot) === 'keep' ? 2 : 3;
+      if (day.items.length >= 3 && bDaySecs({ items: [...day.items, { key: pick.key, sets }] }, map) > limit) return;
+      day.items.push({ key: pick.key, slot, sets });
+    });
+    day.items.sort((x, y) => (B_SLOTS[y.slot].c || 0) - (B_SLOTS[x.slot].c || 0) || slots.indexOf(x.slot) - slots.indexOf(y.slot));
+    return day;
+  }) };
+  // Balance pass: add sets for muscles you want to grow, trim ones you only want to keep.
+  for (let round = 0; round < 6; round++) {
+    const vol = bVolume(plan, map);
+    let changed = false;
+    MUSCLES.forEach((m) => {
+      const g = B_GROUPS.find(([, ms]) => ms.includes(m))?.[0], target = B_VOL[a.levels[g] || 'normal'] * rec.f;
+      if (vol[m] < target - 1) {
+        for (const day of plan.days) {
+          const it = day.items.find((x) => map[x.key]?.muscles[m] === 1 && x.sets < rec.maxSets && !B_SLOTS[x.slot]?.c);
+          if (it && bDaySecs(day, map) + bExSecs(map[it.key], 1) - 60 <= limit) { it.sets++; changed = true; break; }
+        }
+      } else if (vol[m] > target + (a.levels[g] === 'keep' ? 4 : 8)) {
+        for (const day of plan.days) {
+          const it = day.items.find((x) => map[x.key]?.muscles[m] === 1 && x.sets > 2 && !B_SLOTS[x.slot]?.c);
+          if (it) { it.sets--; changed = true; break; }
+        }
+      }
+    });
+    if (!changed) break;
+  }
+  return plan;
+}
+
+function bVolume(plan, map) {
+  const out = Object.fromEntries(MUSCLES.map((m) => [m, 0]));
+  plan.days.forEach((d) => d.items.forEach((it) => Object.entries(map[it.key]?.muscles || {}).forEach(([m, f]) => { if (m in out) out[m] += it.sets * f; })));
+  return out;
+}
+
+/** Main lifts: one exercise per big movement (press, overhead, row, pulldown, legs, glutes), up to 6. */
+function bMainLifts(plan, map) {
+  const out = [], items = plan.days.flatMap((d) => d.items).filter((it) => map[it.key] && !repsOnly(map[it.key]));
+  ['chestPress', 'shoulderPress', 'row', 'vPull', 'quad', 'glute', 'hinge', 'chest2', 'back2'].forEach((slot) => {
+    const it = items.find((x) => x.slot === slot && !out.includes(x.key));
+    if (it && out.length < 6) out.push(it.key);
+  });
+  return out;
+}
+
+// ----- Builder screens -----
+const bOpt = (key, val, label, sub = '', multi = false) => {
+  const a = bAns(), on = multi ? a[key].includes(val) : String(a[key]) === String(val);
+  return `<button type="button" class="rounded-2xl border p-3 text-left transition active:scale-[0.98] ${on ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}" data-b="${multi ? 'toggle' : 'pick'}" data-key="${key}" data-val="${esc(val)}" aria-pressed="${on}">
+    <span class="block font-semibold ${on ? 'text-indigo-700 dark:text-indigo-300' : ''}">${label}</span>${sub ? `<span class="mt-0.5 block text-xs muted">${sub}</span>` : ''}
+  </button>`;
+};
+const bQ = (title, help, body) => `<div class="space-y-3"><div><h3 class="display text-3xl leading-none">${title}</h3>${help ? `<p class="mt-2 text-sm muted">${help}</p>` : ''}</div>${body}</div>`;
+const bGrid = (html, cols = 2) => `<div class="grid grid-cols-${cols} gap-2">${html}</div>`;
+const bNum = (key, label, attrs) => `<label class="block"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" data-bq="${key}" value="${esc(bAns()[key])}" ${attrs}></label>`;
+
+function bStepHtml(step) {
+  const a = bAns();
+  switch (step) {
+    case 'intro': return bQ('Build my plan', 'About 3 minutes of questions about you, your body, your week and what you want. Then you see the full plan, can change anything, and only save it if you like it.',
+      `<ul class="space-y-2 text-sm">
+        <li class="flex gap-2"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-indigo-500"></span>Uses your own exercises where they fit, then the library. Anything you say to avoid is never picked.</li>
+        <li class="flex gap-2"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500"></span>Sessions are sized to your time, and sets per muscle to your priorities and recovery.</li>
+        <li class="flex gap-2"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-500"></span>The 12-week blocks, deloads, check-ins and automatic targets all work with it.</li>
+        <li class="flex gap-2"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500"></span>Your history and progress are never touched. Cancel at any point and nothing changes.</li>
+      </ul>`);
+    case 'you': return bQ('About you', 'Used to size your volume and, if you want, to keep your food profile up to date.',
+      `<div><span class="label">Sex</span>${bGrid(bOpt('sex', 'male', 'Male') + bOpt('sex', 'female', 'Female'))}</div>
+      <div class="grid grid-cols-3 gap-2">${bNum('age', 'Age', 'min="14" max="99"')}${bNum('height', 'Height (cm)', 'min="100" max="250"')}${bNum('weight', 'Weight (kg)', 'step="0.1" min="30" max="300"')}</div>
+      ${bNum('goalKg', 'Goal weight (kg, optional)', 'step="0.1" min="30" max="300"')}`);
+    case 'goal': return bQ('What’s the main goal?', 'This sets the balance between volume and heavy work. Your calories are set separately in Food.',
+      bGrid(bOpt('goal', 'fat', 'Lose fat, keep muscle', 'Slightly less volume while dieting') + bOpt('goal', 'recomp', 'Lose fat and build muscle', 'A slow cut while getting stronger')
+        + bOpt('goal', 'muscle', 'Build muscle', 'More sets on what you want to grow') + bOpt('goal', 'strength', 'Get stronger', 'Main lifts first, longer rests'), 1));
+    case 'experience': return bQ('Your training so far', '',
+      `<div><span class="label">How long have you trained?</span>${bGrid(bOpt('years', '<1', 'Under a year') + bOpt('years', '1-2', '1–2 years') + bOpt('years', '2-4', '2–4 years') + bOpt('years', '4+', '4+ years'))}</div>
+      <div><span class="label">The last 6 months</span>${bGrid(bOpt('consistent', 'onoff', 'On and off') + bOpt('consistent', 'mostly', 'Most weeks') + bOpt('consistent', 'always', 'Every week'), 3)}</div>
+      <div><span class="label">Rating effort (RPE)</span>${bGrid(bOpt('rpe', 'new', 'New to it') + bOpt('rpe', 'some', 'Getting there') + bOpt('rpe', 'confident', 'Confident'), 3)}</div>`);
+    case 'week': return bQ('Your week', 'Tick the days you can train (2 to 5). Each day gets its own session.',
+      `${bGrid(DAYS.map((d, i) => bOpt('days', i, d, '', true)).join(''), 4)}
+      <p class="text-sm ${a.days.length < 2 || a.days.length > 5 ? 'text-rose-600 dark:text-rose-400' : 'muted'}">${a.days.length} day${a.days.length === 1 ? '' : 's'} ticked${a.days.length > 5 ? ': the app holds up to 5 routines, so pick 5 at most' : a.days.length < 2 ? ': pick at least 2' : ''}</p>
+      <div><span class="label">Time for each session (including warm-up)</span>${bGrid([30, 45, 60, 75, 90].map((m) => bOpt('minutes', m, `${m} min`)).join(''), 5)}</div>`);
+    case 'muscles': return bQ('What matters most?', 'Muscles to grow get about 14 hard sets a week, normal about 10, and ones you just want to keep about 6.',
+      `<div class="space-y-2">${B_GROUPS.map(([g]) => `<div class="grid grid-cols-[4.75rem_1fr] items-center gap-2"><span class="text-sm font-semibold">${g}</span>
+        <div class="grid grid-cols-3 gap-1">${B_LEVELS.map(([v, l]) => `<button type="button" class="rounded-xl border px-1 py-2 text-xs font-semibold transition ${a.levels[g] === v ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-200 dark:border-slate-800'}" data-b="level" data-g="${g}" data-val="${v}" aria-pressed="${a.levels[g] === v}">${l}</button>`).join('')}</div></div>`).join('')}</div>
+      <div><span class="label">How often do you want to train legs?</span>${bGrid(bOpt('legDays', 'one', 'One leg day', 'Legs once a week') + bOpt('legDays', 'topup', 'One day + a top-up', 'A few leg sets on another day') + bOpt('legDays', 'two', 'Two leg days', 'Upper / lower style'), 1)}</div>`);
+    case 'gym': return bQ('Your gym and style', '',
+      `<div><span class="label">Where do you train?</span>${bGrid(bOpt('gym', 'commercial', 'Big gym', 'Machines, cables, plate-loaded') + bOpt('gym', 'small', 'Smaller gym', 'Basic machines and cables') + bOpt('gym', 'home', 'Home', 'Dumbbells and bodyweight'), 3)}</div>
+      <div><span class="label">What do you prefer?</span>${bGrid(bOpt('style', 'machines', 'Machines first', 'Stable, joint-friendly') + bOpt('style', 'mix', 'A mix') + bOpt('style', 'free', 'Free weights first'), 3)}</div>
+      <label class="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 p-3 dark:border-slate-800"><span><span class="block font-semibold">Keep exercises I already do</span><span class="text-xs muted">Your own exercises (especially ones you’ve logged lately) are picked first where they fit.</span></span>
+        <input type="checkbox" class="mt-1 h-6 w-6 shrink-0 accent-indigo-600" data-bq="keepMine" ${a.keepMine ? 'checked' : ''}></label>`);
+    case 'body': return bQ('Your body', 'Anything ticked here is filtered out of the plan, and you get tips for it.',
+      `<div><span class="label">Joints or injuries to look after</span>${bGrid(B_JOINTS.map(([k, l]) => bOpt('joints', k, l, '', true)).join(''))}</div>
+      <div><span class="label">Never give me</span>${bGrid(B_AVOID.map(([k, l]) => bOpt('avoid', k, l, '', true)).join(''))}</div>
+      <label class="block"><span class="label">Anything else? (kept with your answers)</span><textarea class="input" rows="2" data-bq="notes" maxlength="300" placeholder="e.g. left shoulder clicks on chest flies">${esc(a.notes)}</textarea></label>`);
+    case 'recovery': return bQ('Recovery and lifestyle', 'Sleep, stress and how active you are change how much training you can recover from.',
+      `<div><span class="label">Sleep most nights</span>${bGrid(bOpt('sleep', '<6', 'Under 6 h') + bOpt('sleep', '6-7', '6–7 h') + bOpt('sleep', '7-8', '7–8 h') + bOpt('sleep', '8+', '8 h +'), 4)}</div>
+      <div><span class="label">Stress lately</span>${bGrid(bOpt('stress', 'low', 'Low') + bOpt('stress', 'medium', 'Medium') + bOpt('stress', 'high', 'High'), 3)}</div>
+      <div><span class="label">Your job</span>${bGrid(bOpt('job', 'desk', 'Mostly sitting') + bOpt('job', 'feet', 'On my feet') + bOpt('job', 'manual', 'Physical'), 3)}</div>
+      <div><span class="label">Daily steps</span>${bGrid(bOpt('steps', '<5', 'Under 5k') + bOpt('steps', '5-8', '5–8k') + bOpt('steps', '8-12', '8–12k') + bOpt('steps', '12+', '12k +'), 4)}</div>
+      <div><span class="label">Cardio sessions a week</span>${bGrid(bOpt('cardio', 'none', 'None') + bOpt('cardio', '1-2', '1–2') + bOpt('cardio', '3+', '3 +'), 3)}</div>`);
+  }
+  return '';
+}
+
+function bStepError(step) {
+  const a = bAns();
+  if (step === 'you' && !(a.age > 0 && a.height > 0 && a.weight > 0)) return 'Fill in your age, height and weight.';
+  if (step === 'week' && (a.days.length < 2 || a.days.length > 5)) return 'Tick between 2 and 5 days.';
+  return '';
+}
+
+function builderView() {
+  const pl = state.planner;
+  if (pl.plan) return builderPreview();
+  const i = Math.max(0, B_STEPS.indexOf(pl.step)), step = B_STEPS[i];
+  return `<section class="mb-4 flex items-center justify-between gap-3">
+      <button class="link" data-b="cancel">✕ Cancel</button>
+      ${i ? `<span class="text-xs font-bold uppercase tracking-[0.14em] muted">Question ${i} of ${B_STEPS.length - 1}</span>` : ''}
+    </section>
+    ${i ? `<div class="mb-4 grid gap-1" style="grid-template-columns:repeat(${B_STEPS.length - 1},1fr)">${B_STEPS.slice(1).map((_, k) => `<span class="h-1.5 rounded-full ${k < i ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-800'}"></span>`).join('')}</div>` : ''}
+    <section class="card mb-4">${bStepHtml(step)}</section>
+    <p id="b-error" class="mb-3 hidden text-sm font-semibold text-rose-600 dark:text-rose-400"></p>
+    <div class="grid ${i ? 'grid-cols-[1fr_2fr]' : ''} gap-3">
+      ${i ? '<button class="btn-ghost" data-b="back">Back</button>' : ''}
+      <button class="btn-primary display text-lg tracking-[0.08em]" data-b="next">${i === 0 ? 'Start' : i === B_STEPS.length - 1 ? 'Build my plan →' : 'Next'}</button>
+    </div>`;
+}
+
+function builderPreview() {
+  const a = bAns(), plan = state.planner.plan, cands = bCandidates();
+  const map = bMap(bCandidates(true)); // look-ups include anything you picked by hand
+  const vol = bVolume(plan, map), rec = bRecovery(a), mains = bMainLifts(plan, map);
+  const splitName = plan.days.map((d) => d.name.replace(/^\d · /, '')).join(' · ');
+  const mins = plan.days.map((d) => Math.round(bDaySecs(d, map) / 60));
+  const notes = [];
+  const avoided = [...B_AVOID.filter(([k]) => a.avoid.includes(k)).map(([, l]) => l.toLowerCase()), ...B_JOINTS.filter(([k]) => a.joints.includes(k)).map(([, l]) => `anything hard on ${l === 'Hypermobility' ? 'loose joints' : `your ${l.toLowerCase()}`}`)];
+  if (avoided.length) notes.push(`Left out: ${avoided.join(', ')}.`);
+  B_JOINTS.filter(([k]) => a.joints.includes(k)).forEach(([, , , tip]) => notes.push(tip));
+  if (rec.f < 1) notes.push(`Volume is set to about ${Math.round(rec.f * 100)}% of normal${rec.why.length ? ` because of ${rec.why.join(', ')}` : ''}. Build up later if you’re recovering well.`);
+  if (a.goal === 'strength') notes.push('Main lifts come first in each session. In Block 3 they go heavy at 5–8 reps.');
+  if (a.rpe === 'new') notes.push('RPE: rate how hard the last set felt. 10 = nothing left, 8 = two more reps in you. You get better at it within a few weeks.');
+  const used = new Set(plan.days.map((d) => d.dow));
+  const bars = MUSCLES.filter((m) => m !== 'Core' || vol[m] > 0).map((m) => {
+    const v = vol[m], g = B_GROUPS.find(([, ms]) => ms.includes(m))[0], target = B_VOL[a.levels[g]] * rec.f;
+    return `<div class="grid grid-cols-[5.5rem_1fr_2.25rem] items-center gap-2 text-xs">
+      <span class="font-semibold">${m}</span>
+      <span class="relative h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800"><span class="absolute inset-y-0 left-0 rounded-full ${v >= target - 1 ? 'bg-emerald-500' : 'bg-amber-500'}" style="width:${Math.min(100, (v / 22) * 100)}%"></span><span class="absolute inset-y-0 w-0.5 bg-slate-900 dark:bg-slate-100" style="left:${Math.min(100, (target / 22) * 100)}%"></span></span>
+      <span class="text-right font-bold tabular-nums">${fmt(v)}</span>
+    </div>`;
+  }).join('');
+
+  return `<section class="mb-4 flex items-center justify-between gap-3">
+      <button class="link" data-b="answers">‹ Change answers</button>
+      <button class="link text-rose-600 dark:text-rose-400" data-b="cancel">Cancel plan</button>
+    </section>
+    <section class="card relative mb-4 overflow-hidden pl-7">
+      <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full bg-indigo-500" aria-hidden="true"></span>
+      <p class="eyebrow">Your new plan · not saved yet</p>
+      <h2 class="mt-1 text-[2.2rem] leading-[0.95]">${esc(splitName)}</h2>
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        <span class="badge bg-slate-100 dark:bg-slate-800">${plan.days.length} days</span>
+        <span class="badge bg-slate-100 dark:bg-slate-800">≈ ${Math.min(...mins)}–${Math.max(...mins)} min</span>
+        <span class="badge bg-slate-100 dark:bg-slate-800">${sum(plan.days.map((d) => sum(d.items.map((x) => x.sets))))} sets a week</span>
+      </div>
+      <p class="mt-3 text-sm muted">Change anything below: days, names, exercises and sets. Nothing in your app changes until you save.</p>
+    </section>
+    ${notes.length ? `<section class="card mb-4"><h3 class="display text-xl">Built around you</h3><ul class="mt-2 space-y-1.5 text-sm">${notes.map((n) => `<li class="flex gap-2"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-indigo-500"></span><span>${esc(n)}</span></li>`).join('')}</ul></section>` : ''}
+    ${plan.days.map((d, di) => {
+      const m = Math.round(bDaySecs(d, map) / 60), dot = PLATE_COLORS[di % PLATE_COLORS.length];
+      const have = new Set(d.items.map((x) => x.key));
+      const addable = cands.filter((c) => !have.has(c.key)).sort((x, y) => x.name.localeCompare(y.name));
+      return `<section class="card mb-3">
+        <div class="flex items-center gap-2">
+          <span class="h-3.5 w-3.5 shrink-0 rounded-full ${dot}"></span>
+          <input class="input display min-w-0 flex-1 py-1.5 text-xl" maxlength="30" value="${esc(d.name)}" data-bp="name" data-d="${di}" aria-label="Session name">
+          <select class="input w-auto py-2 text-sm" data-bp="dow" data-d="${di}" aria-label="Day">${DAYS.map((n, i) => `<option value="${i}" ${d.dow === i ? 'selected' : ''} ${used.has(i) && d.dow !== i ? 'disabled' : ''}>${n}</option>`).join('')}</select>
+        </div>
+        <p class="mt-1 text-xs ${m > a.minutes ? 'font-semibold text-amber-700 dark:text-amber-300' : 'muted'}">≈ ${m} min${m > a.minutes ? ` · over your ${a.minutes} min` : ''} · ${sum(d.items.map((x) => x.sets))} sets</p>
+        <ul class="mt-2 divide-y divide-slate-200 dark:divide-slate-800">
+          ${d.items.map((it, ii) => {
+            const c = map[it.key];
+            if (!c) return '';
+            const alts = it.slot ? bOptions(it.slot, cands).filter((x) => x.key === it.key || !have.has(x.key)).slice(0, 10) : [];
+            if (!alts.some((x) => x.key === it.key)) alts.unshift(c);
+            return `<li class="py-2">
+              <select class="w-full truncate rounded-lg bg-transparent py-1 font-semibold outline-none focus:ring-2 focus:ring-indigo-500/40" data-bp="swap" data-d="${di}" data-i="${ii}" aria-label="Swap exercise">${alts.map((x) => `<option value="${esc(x.key)}" ${x.key === it.key ? 'selected' : ''}>${esc(x.name)}${x.owned ? '' : ' (new)'}</option>`).join('')}</select>
+              <div class="flex items-center gap-1">
+                <span class="min-w-0 flex-1 text-xs muted">${c.repMin}–${c.repMax} reps · ${bEqLabel(c)}${mains.includes(it.key) ? ' · <b class="text-indigo-600 dark:text-indigo-400">main lift</b>' : ''}${alts.length > 1 && ii === 0 ? ' · tap a name to swap it' : ''}</span>
+                <button class="icon-btn h-9 w-9" data-b="sets" data-d="${di}" data-i="${ii}" data-dir="-1" ${it.sets <= 1 ? 'disabled' : ''} aria-label="One set fewer">−</button>
+                <span class="w-12 text-center text-sm font-bold tabular-nums">${it.sets} set${it.sets === 1 ? '' : 's'}</span>
+                <button class="icon-btn h-9 w-9" data-b="sets" data-d="${di}" data-i="${ii}" data-dir="1" ${it.sets >= 6 ? 'disabled' : ''} aria-label="One more set">+</button>
+                <button class="icon-btn h-9 w-9" data-b="remove" data-d="${di}" data-i="${ii}" aria-label="Remove">${ICON_X}</button>
+              </div>
+            </li>`;
+          }).join('')}
+        </ul>
+        <select class="input mt-2 py-2 text-sm" data-bp="add" data-d="${di}"><option value="">+ Add an exercise…</option>${addable.map((c) => `<option value="${esc(c.key)}">${esc(c.name)}${c.owned ? '' : ' (new)'}</option>`).join('')}</select>
+      </section>`;
+    }).join('')}
+    <section class="card mb-4">
+      <h3 class="display text-xl">Sets per muscle each week</h3>
+      <p class="mb-3 text-xs muted">Working sets (secondary muscles count ½). The line marks what your answers aim for.</p>
+      <div class="space-y-2">${bars}</div>
+      <p class="mt-3 text-sm"><span class="muted">Main lifts:</span> ${mains.map((k) => esc(map[k]?.name)).join(', ') || 'none'}</p>
+    </section>
+    <section class="card mb-4 space-y-3">
+      <label class="flex items-start justify-between gap-3"><span><span class="block font-semibold">Update my food profile</span><span class="text-xs muted">Saves your age, height and weight there. Your calorie targets stay as they are until you recalculate them.</span></span>
+        <input type="checkbox" class="mt-1 h-6 w-6 shrink-0 accent-indigo-600" id="b-food" ${state.food.profile ? 'checked' : ''}></label>
+      <p class="text-xs muted">Saving replaces your routines and weekly schedule. Your workout history, records${state.programme ? ', the 12-week programme (blocks, deloads, check-ins)' : ''} and food logs are kept.${state.programme ? ' Main lifts in the programme switch to the ones above.' : ''}</p>
+    </section>
+    <div class="grid grid-cols-[1fr_2fr] gap-3">
+      <button class="btn-ghost" data-b="cancel">Cancel</button>
+      <button class="btn-primary display text-lg tracking-[0.08em]" data-b="save">Save this plan</button>
+    </div>`;
+}
+
+function savePlan() {
+  const a = bAns(), plan = state.planner.plan, created = [];
+  const map = bMap(bCandidates(true));
+  const exFor = (key) => (key.startsWith('own:') ? exById(key.slice(4)) : planExercise(key.slice(4), created));
+  const today = todayISO(), keys = {};
+  const routines = [...plan.days].sort((x, y) => x.dow - y.dow).map((d, k) => {
+    const ids = [], sets = {};
+    d.items.forEach((it) => {
+      const ex = exFor(it.key);
+      if (!ex || ids.includes(ex.id)) return;
+      keys[it.key] = ex.id;
+      ids.push(ex.id);
+      if (it.sets !== (ex.sets || 3)) sets[ex.id] = it.sets;
+    });
+    return { id: state.routines[k]?.id || uid(), name: d.name.trim() || `Day ${k + 1}`, exerciseIds: ids, sets, links: {}, dow: d.dow };
+  });
+  state.routines = routines.map(({ dow: _d, ...r }) => r);
+  state.schedule.weekly = Object.fromEntries(routines.map((r) => [r.dow, r.id]));
+  Object.keys(state.schedule.overrides).forEach((d) => { if (d >= today) delete state.schedule.overrides[d]; });
+  const mains = bMainLifts(plan, map).map((k) => keys[k]).filter(Boolean);
+  if (state.programme) state.programme.main = mains;
+  if (document.getElementById('b-food')?.checked) {
+    state.food.profile = { activity: 1.55, goal: 'lose-slow', ...(state.food.profile || {}), sex: a.sex, age: Number(a.age), height: Number(a.height), weight: Number(a.weight) };
+  }
+  if (a.goalKg && state.programme && !state.programme.goalKg) state.programme.goalKg = Number(a.goalKg);
+  state.settings.planLoaded = NEW_PLAN.id; // the one-off "new plan" card is no longer needed
+  state.planner = { ...state.planner, plan: null, step: 'intro', main: mains, savedAt: today };
+  return created;
+}
+
+function builderCard() {
+  return `<button class="card relative mb-4 block w-full overflow-hidden pl-7 text-left transition active:scale-[0.99]" data-action="builder-open">
+    <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full bg-violet-500" aria-hidden="true"></span>
+    <p class="eyebrow">${state.planner.plan ? 'Plan in progress' : 'Plan builder'}</p>
+    <h3 class="display mt-1 text-2xl leading-none">${state.planner.plan ? 'Finish reviewing your plan' : state.planner.savedAt ? 'Build a new plan' : 'Build my plan'}</h3>
+    <p class="mt-1 text-sm muted">${state.planner.plan ? 'Pick up where you left off. Nothing is saved yet.' : 'Answer questions about you, your body and your week. See the plan, change it, and only save it if you like it.'}</p>
+  </button>`;
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-b]');
+  if (!b || view !== 'builder') return;
+  const pl = state.planner, a = pl.answers, step = pl.step || 'intro';
+  switch (b.dataset.b) {
+    case 'pick': a[b.dataset.key] = typeof a[b.dataset.key] === 'number' ? Number(b.dataset.val) : b.dataset.val; break;
+    case 'toggle': {
+      const k = b.dataset.key, v = k === 'days' ? Number(b.dataset.val) : b.dataset.val;
+      a[k] = a[k].includes(v) ? a[k].filter((x) => x !== v) : [...a[k], v];
+      break;
+    }
+    case 'level': a.levels[b.dataset.g] = b.dataset.val; break;
+    case 'back': pl.step = B_STEPS[Math.max(0, B_STEPS.indexOf(step) - 1)]; window.scrollTo(0, 0); break;
+    case 'next': {
+      const err = bStepError(step);
+      if (err) { const el = document.getElementById('b-error'); el.textContent = err; el.classList.remove('hidden'); return; }
+      const i = B_STEPS.indexOf(step);
+      if (i === B_STEPS.length - 1) pl.plan = buildPlan();
+      else pl.step = B_STEPS[i + 1];
+      window.scrollTo(0, 0);
+      break;
+    }
+    case 'answers': pl.plan = null; pl.step = B_STEPS[B_STEPS.length - 1]; window.scrollTo(0, 0); break;
+    case 'cancel': {
+      if (pl.plan && !confirm('Cancel this plan? Your current routines and schedule stay exactly as they are.')) return;
+      pl.plan = null; pl.step = 'intro'; view = 'plan'; window.scrollTo(0, 0);
+      toast('Plan cancelled. Nothing was changed.');
+      break;
+    }
+    case 'sets': { const it = pl.plan.days[b.dataset.d].items[b.dataset.i]; it.sets = Math.max(1, Math.min(6, it.sets + Number(b.dataset.dir))); break; }
+    case 'remove': pl.plan.days[b.dataset.d].items.splice(Number(b.dataset.i), 1); break;
+    case 'save': {
+      if (!pl.plan.days.every((d) => d.items.length)) { toast('Every day needs at least one exercise'); return; }
+      if (!confirm('Save this plan? Your routines and weekly schedule are replaced. History, records, food logs and the 12-week programme are kept.')) return;
+      const created = savePlan();
+      view = 'plan'; window.scrollTo(0, 0);
+      toast(`New plan saved${created.length ? `. Added ${created.length} new exercise${created.length === 1 ? '' : 's'}` : ''}`);
+      break;
+    }
+    default: return;
+  }
+  saveState(); render();
+});
+
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (view !== 'builder') return;
+  const pl = state.planner;
+  if (el.dataset.bq) { pl.answers[el.dataset.bq] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value; saveState(); return; }
+  const bp = el.dataset.bp;
+  if (!bp || !pl.plan) return;
+  const d = pl.plan.days[el.dataset.d];
+  if (bp === 'name') d.name = el.value;
+  if (bp === 'dow') d.dow = Number(el.value);
+  if (bp === 'swap') d.items[el.dataset.i].key = el.value;
+  if (bp === 'add' && el.value) {
+    const c = bMap(bCandidates(true))[el.value];
+    const slot = Object.keys(B_SLOTS).find((s) => c && B_SLOTS[s].t(c)) || null;
+    d.items.push({ key: el.value, slot, sets: 3 });
+  }
+  saveState(); render();
+});
+
+/** Main muscles a routine trains (primary muscles, most sets first). */
+function routineFocus(r) {
+  const vol = {};
+  r.exerciseIds.map(exById).filter(Boolean).forEach((ex) => Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (f === 1) vol[m] = (vol[m] || 0) + (r.sets?.[ex.id] || ex.sets || 3); }));
+  return Object.keys(vol).sort((a, b) => vol[b] - vol[a]).slice(0, 4).join(', ');
+}
+
+/** The week as a table: day, session (plate colour, focus) and status. */
+function planTable(start) {
+  const today = todayISO();
+  const rows = DAYS.map((name, i) => {
+    const d = addDays(start, i), r = plannedRoutine(d), st = dayStatus(d);
+    const done = state.history.filter((h) => h.date === d);
+    const moved = state.schedule.overrides[d] !== undefined;
+    const vol = {};
+    done.forEach((h) => Object.entries(exById(h.exerciseId)?.muscles || {}).forEach(([m, f]) => { if (f === 1) vol[m] = (vol[m] || 0) + h.sets.length; }));
+    const doneName = Object.keys(vol).sort((a, b) => vol[b] - vol[a]).slice(0, 2).join(' & ') || 'Workout';
+    const status = { done: '<span class="text-emerald-600 dark:text-emerald-400">Done ✓</span>', missed: '<span class="text-rose-600 dark:text-rose-400">Missed</span>', planned: d === today ? '<span class="text-indigo-600 dark:text-indigo-400">Today</span>' : '<span class="muted">—</span>', rest: '<span class="muted">Rest</span>' }[st];
+    return `<button class="grid w-full grid-cols-[3.25rem_1fr_4.25rem] items-center gap-2 px-3 py-2.5 text-left transition active:bg-slate-100 dark:active:bg-slate-800 ${d === today ? 'bg-indigo-500/10' : ''} ${st === 'rest' ? 'opacity-60' : ''}" data-action="open-day" data-date="${d}">
+      <span><span class="block text-sm font-bold">${name}</span><span class="block text-[11px] muted">${parseISO(d).getDate()} ${parseISO(d).toLocaleDateString('en-GB', { month: 'short' })}</span></span>
+      <span class="min-w-0">
+        <span class="flex items-center gap-2">${r && st !== 'done' ? plateDot(r) : ''}<span class="display truncate text-lg leading-tight">${esc(st === 'done' ? doneName : r ? r.name : 'Rest')}${moved ? '*' : ''}</span></span>
+        ${st === 'done' ? `<span class="block truncate text-[11px] muted">${done.length} exercise${done.length === 1 ? '' : 's'} logged</span>` : r ? `<span class="block truncate text-[11px] muted">${esc(routineFocus(r))}</span>` : ''}
+      </span>
+      <span class="text-right text-xs font-semibold">${status}</span>
+    </button>`;
+  });
+  return `<div class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+    <div class="grid grid-cols-[3.25rem_1fr_4.25rem] gap-2 border-b-2 border-indigo-500 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.12em] muted"><span>Day</span><span>Session</span><span class="text-right">Status</span></div>
+    <div class="divide-y divide-slate-200 dark:divide-slate-800">${rows.join('')}</div>
+  </div>`;
+}
+
 // ----- Plan tab -----
 function planView() {
   const weekEnd = addDays(planWeek, 6);
   const opts = (selected) => `<option value="">Rest</option>` +
     state.routines.map((r) => `<option value="${r.id}" ${r.id === selected ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
 
-  let html = `<h2 class="mb-4 text-2xl font-bold">Plan</h2>
+  let html = `<h2 class="mb-4 text-3xl">Plan</h2>
   ${newPlanCard()}
+  ${builderCard()}
   ${programmeCard()}
   ${balanceCard()}
   <section class="card mb-4">
@@ -1862,7 +2427,7 @@ function planView() {
       </div>
       <button class="icon-btn text-2xl" data-action="plan-week" data-dir="1" aria-label="Next week">›</button>
     </div>
-    ${weekStrip(planWeek)}
+    ${planTable(planWeek)}
     <p class="mt-3 text-xs muted">Tap a day to swap, skip or move its workout. * = changed from your weekly plan.</p>
   </section>
 
@@ -1893,7 +2458,7 @@ function planView() {
     return `<article class="card">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
-          <h4 class="truncate font-bold">${esc(r.name)}</h4>
+          <h4 class="flex items-center gap-2 font-bold">${plateDot(r, 'h-3 w-3')}<span class="display truncate text-xl font-normal">${esc(r.name)}</span></h4>
           <p class="text-xs muted">${names.length} exercise${names.length === 1 ? '' : 's'}${days.length ? ` · ${days.join(', ')}` : ' · not scheduled'}${names.length ? ` · ≈ ${sessionMinutes(r, addDays(planWeek, Math.max(0, DAYS.findIndex((_, i) => state.schedule.weekly[i] === r.id))))} min` : ''}</p>
         </div>
         <div class="-mr-2 -mt-1 flex">
@@ -1937,6 +2502,62 @@ function routineEditor() {
 }
 
 // ----- Stats tab -----
+/** Food for a finished day: calories and protein each rated good / close / low (null = nothing logged). */
+function foodDayRating(date) {
+  const t = targetsFor(date), got = dayTotals(date);
+  if (!t || got.kcal < 800) return null;
+  const k = got.kcal / t.kcal, p = got.protein / t.protein;
+  return {
+    kcal: k >= 0.9 && k <= 1.1 ? 'good' : k >= 0.8 && k <= 1.2 ? 'close' : 'off',
+    protein: p >= 0.95 ? 'good' : p >= 0.8 ? 'close' : 'off',
+  };
+}
+
+/** Month calendar: top box = gym session, bottom box = food (left half calories, right half protein). */
+function monthCard() {
+  const [y, m] = statsMonth.split('-').map(Number), first = `${statsMonth}-01`, today = todayISO();
+  const days = new Date(y, m, 0).getDate(), pad = dow(first);
+  const tone = { good: 'bg-emerald-500', close: 'bg-amber-500', off: 'bg-rose-500' };
+  let gym = 0, foodGood = 0, both = 0, weighs = 0;
+  const firstLog = state.history.map((h) => h.date).sort()[0] || today; // planned days before you used the app aren't "missed"
+  const cells = Array.from({ length: days }, (_, i) => {
+    const d = `${statsMonth}-${String(i + 1).padStart(2, '0')}`;
+    const future = d > today, trained = state.history.some((h) => h.date === d);
+    const planned = plannedRoutine(d), f = !future && d < today ? foodDayRating(d) : null;
+    const inProgress = d === today && dayTotals(d).kcal > 0;
+    const allGood = f && f.kcal === 'good' && f.protein === 'good';
+    if (trained) gym++;
+    if (allGood) foodGood++;
+    if (trained && allGood) both++;
+    if (state.food.weights[d] != null) weighs++;
+    const gymBox = trained ? 'bg-emerald-500' : planned && d < today && d >= firstLog ? 'bg-rose-500/30' : planned && d >= today ? plateColor(planned) + ' opacity-60' : 'bg-slate-200 dark:bg-slate-800';
+    const foodBox = f ? `<span class="flex h-2 overflow-hidden rounded-sm"><span class="flex-1 ${tone[f.kcal]}"></span><span class="flex-1 ${tone[f.protein]}"></span></span>`
+      : `<span class="block h-2 rounded-sm ${inProgress ? 'border border-dashed border-slate-400 dark:border-slate-500' : 'bg-slate-200 dark:bg-slate-800'}"></span>`;
+    return `<div class="flex min-w-0 flex-col gap-1 rounded-lg p-1 ${d === today ? 'ring-2 ring-slate-900 dark:ring-slate-100' : ''} ${future ? 'opacity-40' : ''}">
+      <span class="text-xs font-bold tabular-nums">${i + 1}</span>
+      <span class="block h-2 rounded-sm ${gymBox}"></span>${foodBox}
+    </div>`;
+  });
+  const label = parseISO(first).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const stat = (l, v) => `<div class="bg-white p-2.5 dark:bg-slate-900"><p class="text-[10px] font-bold uppercase tracking-[0.12em] muted">${l}</p><p class="display text-2xl leading-none tabular-nums">${v}</p></div>`;
+  return `<section class="card mb-4">
+    <div class="mb-3 flex items-center justify-between">
+      <button class="icon-btn text-2xl" data-action="stats-month" data-dir="-1" aria-label="Previous month">‹</button>
+      <h3 class="display text-xl">${label}</h3>
+      <button class="icon-btn text-2xl" data-action="stats-month" data-dir="1" ${statsMonth >= today.slice(0, 7) ? 'disabled' : ''} aria-label="Next month">›</button>
+    </div>
+    <div class="mb-3 grid grid-cols-4 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800">
+      ${stat('Gym', gym)}${stat('Food ✓', foodGood)}${stat('Both ✓', both)}${stat('Weighed', weighs)}
+    </div>
+    <div class="grid grid-cols-7 gap-0.5 text-center text-[10px] font-bold uppercase tracking-wider muted">${DAYS.map((d) => `<span>${d.slice(0, 2)}</span>`).join('')}</div>
+    <div class="mt-1 grid grid-cols-7 gap-0.5">${'<div></div>'.repeat(pad)}${cells.join('')}</div>
+    <div class="mt-3 space-y-1 text-[11px] muted">
+      <p><b class="text-slate-700 dark:text-slate-200">Top bar, gym:</b> <span class="inline-block h-2 w-3 rounded-sm bg-emerald-500"></span> done · <span class="inline-block h-2 w-3 rounded-sm bg-rose-500/30"></span> missed · faded colour = planned</p>
+      <p><b class="text-slate-700 dark:text-slate-200">Bottom bar, food</b> (left calories, right protein): <span class="inline-block h-2 w-3 rounded-sm bg-emerald-500"></span> on target · <span class="inline-block h-2 w-3 rounded-sm bg-amber-500"></span> close · <span class="inline-block h-2 w-3 rounded-sm bg-rose-500"></span> well off · <span class="inline-block h-2 w-3 rounded-sm border border-dashed border-slate-400"></span> today so far</p>
+    </div>
+  </section>`;
+}
+
 const kgLifted = (h) => (isBW(exById(h.exerciseId) || {}) ? 0 : tonnage(h.sets)); // bodyweight/assist kg isn't load moved
 
 function weekVolume(start) {
@@ -1971,7 +2592,7 @@ function weekStreak() {
 
 function statsView() {
   if (!state.history.length) {
-    return `<h2 class="mb-4 text-2xl font-bold">Stats</h2>` + journeyCard() + nutritionCard() + measuresCard() +
+    return `<h2 class="mb-4 text-3xl">Stats</h2>` + journeyCard() + monthCard() + nutritionCard() + measuresCard() +
       emptyState('No workouts yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
   }
   const thisWeek = weekStart(todayISO());
@@ -1983,18 +2604,19 @@ function statsView() {
 
   const tile = (label, value, sub) => `<div class="tile">
     <p class="text-xs font-semibold uppercase tracking-wide muted">${label}</p>
-    <p class="mt-1 text-2xl font-extrabold tabular-nums">${value}</p>
+    <p class="display mt-1 text-3xl leading-none tabular-nums">${value}</p>
     <p class="text-xs muted">${sub}</p>
   </div>`;
 
-  let html = `<h2 class="mb-4 text-2xl font-bold">Stats</h2>
+  let html = `<h2 class="mb-4 text-3xl">Stats</h2>
   <section class="mb-4 grid grid-cols-2 gap-3">
-    ${tile('This week', `${doneDays}${plannedDays ? `<span class="text-base font-bold muted"> / ${plannedDays}</span>` : ''}`, plannedDays ? 'workouts done / planned' : 'workout days')}
+    ${tile('This week', `${doneDays}${plannedDays ? `<span class="font-sans text-base font-bold normal-case muted"> / ${plannedDays}</span>` : ''}`, plannedDays ? 'workouts done / planned' : 'workout days')}
     ${tile('Streak', weekStreak(), 'weeks in a row')}
     ${tile('Volume', fmtKg(weekVolume(thisWeek)), 'kg lifted this week')}
     ${tile('Records', prCount, 'PR sessions, last 30 days')}
   </section>`;
   html += journeyCard();
+  html += monthCard();
   html += recapHtml(statsWeek, false) || '';
   html += nutritionCard();
 
@@ -2293,7 +2915,7 @@ function exercisesView() {
       <span class="seg">${label}</span>
     </label>`;
 
-  let html = `<h2 class="mb-4 text-2xl font-bold">Exercise database</h2>
+  let html = `<h2 class="mb-4 text-3xl">Exercise database</h2>
   <button class="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl bg-indigo-600 px-4 py-3 text-left text-white transition active:scale-[0.99]" data-action="open-library">
     <span><span class="block font-semibold">Browse exercise library</span><span class="text-sm opacity-80">${LIBRARY.length} common exercises, ready to add in one go</span></span>
     <span class="text-2xl">›</span>
@@ -2415,7 +3037,7 @@ function syncMachineToggle() {
 // ----- History tab -----
 function historyView() {
   let html = `<div class="mb-4 flex items-center justify-between gap-2">
-    <h2 class="text-2xl font-bold">History</h2>
+    <h2 class="text-3xl">History</h2>
     <div class="flex gap-2">
       <button class="btn-ghost px-3 py-2 text-sm" data-action="export">Back up</button>
       <button class="btn-ghost px-3 py-2 text-sm" data-action="import">Restore</button>
@@ -3149,7 +3771,7 @@ function foodView() {
   let html = `<div class="mb-4 flex items-center justify-between">
     <button class="icon-btn text-2xl" data-food="date" data-dir="-1" aria-label="Previous day">‹</button>
     <div class="text-center">
-      <h2 class="text-xl font-bold">${title}</h2>
+      <h2 class="text-xl">${title}</h2>
       ${foodDate !== today ? `<button class="link text-xs" data-food="date" data-dir="0">Back to today</button>` : `<p class="text-xs muted">${fmtDay(today)}</p>`}
     </div>
     <button class="icon-btn text-2xl" data-food="date" data-dir="1" ${foodDate >= today ? 'disabled' : ''} aria-label="Next day">›</button>
@@ -4262,6 +4884,17 @@ document.addEventListener('click', (e) => {
 
   switch (action) {
     case 'nav': view = btn.dataset.view; editingId = null; routineEdit = null; render(); window.scrollTo(0, 0); return;
+    case 'builder-open': {
+      if (!state.planner.answers) state.planner.answers = builderDefaults();
+      else state.planner.answers = { ...builderDefaults(), ...state.planner.answers };
+      if (!state.planner.plan) state.planner.step = 'intro';
+      view = 'builder'; saveState(); render(); window.scrollTo(0, 0); return;
+    }
+    case 'stats-month': {
+      const [y, m] = statsMonth.split('-').map(Number), dt = new Date(y, m - 1 + Number(btn.dataset.dir), 1);
+      statsMonth = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      render(); return;
+    }
     case 'goto-exercises': view = 'exercises'; render(); return;
     case 'goto-today': view = 'today'; render(); return;
     case 'toggle-theme': {

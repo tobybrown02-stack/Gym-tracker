@@ -6,7 +6,7 @@
  */
 const CACHE = 'overload-v1';
 const CORE = ['./', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
-const LIBS = ['https://cdn.tailwindcss.com/3.4.16'];
+const LIBS = ['https://cdn.tailwindcss.com/3.4.16', 'https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800&display=swap'];
 const PAGE_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (event) => {
@@ -71,6 +71,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (isPage(req, url)) return event.respondWith(networkFirstPage(req));
   if (url.origin === location.origin && url.pathname.includes('/food-data/')) return event.respondWith(staleWhileRevalidate(req, event));
-  if (url.origin === location.origin || ['cdn.tailwindcss.com', 'unpkg.com'].includes(url.hostname)) return event.respondWith(cacheFirst(req));
+  if (url.origin === location.origin || ['cdn.tailwindcss.com', 'unpkg.com', 'fonts.googleapis.com', 'fonts.gstatic.com'].includes(url.hostname)) return event.respondWith(cacheFirst(req));
   // Everything else (e.g. live Open Food Facts lookups) goes straight to the network.
 });
