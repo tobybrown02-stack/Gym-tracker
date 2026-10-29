@@ -125,14 +125,40 @@ form itself), then end of weeks 4/8/12 (weight, waist, feel, note; also written
 to weight log/measurements); review compares trend weight, waist and e1RM vs
 the last session before the start, with plain-English advice.
 
-Owner's current setup (as of Oct 2026): programme started with week 1 =
-Mon 26 Oct 2026. Five routines, "A - Back and Biceps", "B - Chest,
-Shoulders…", "C - Legs", "D - Back, Chest and B…", "E - Legs and Shoulder…",
-scheduled Wed–Sun (A–E), Mon/Tue rest. Deloads: weeks of 16 Nov, 14 Dec,
-11 Jan. Check-ins due Sun 22 Nov, Sun 20 Dec, Sun 17 Jan (Sunday is a
-training day: weigh in before training). The owner was briefly confused that
-the starting check-in has no separate screen; offered a "Starting point"
-summary after setup and declined.
+Owner's setup: programme week 1 = Mon 26 Oct 2026. Deloads: weeks of
+16 Nov, 14 Dec, 11 Jan. Check-ins due Sun 22 Nov, Sun 20 Dec, Sun 17 Jan
+(Sunday is a training day: weigh in before training). The owner was briefly
+confused that the starting check-in has no separate screen; offered a
+"Starting point" summary after setup and declined.
+
+**Current split (from 29 Oct 2026, `NEW_PLAN`, loaded by the "Your new plan
+is ready" card → `loadNewPlan()`):** Push / Pull / Legs / Upper / Arms &
+top-up, Wed–Sun, Mon/Tue rest (some weeks Mon/Wed rest; same order, use day
+overrides). Designed with the owner: upper body is the priority (~2.5× leg
+volume), legs one full day + top-up (they don't love legs; legs are their
+best body part). **Hypermobility: machines first; no squats, deadlifts or
+dumbbell presses** (dumbbell curls and raises are fine). Leg press / hip
+thrust at RPE 8–9, never lock the knees; isolation machines can go to 9–10.
+1 Push: Chest Press Machine, Pec Deck, Shoulder Press Machine, Dumbbell
+Lateral Raise, Tricep Pushdown, Overhead Cable Tricep Extension.
+2 Pull: Assisted Pull up, Chest-Supported Row Machine, Lat pulldown, Dumbbell
+Rear Delt Fly, Preacher Curl Machine, Hammer Curl.
+3 Legs: Leg Press, Hip Thrust Machine, Leg Extension, Seated Leg Curl, Hip
+Abduction Machine, Seated Calf Raise.
+4 Upper: Chest Press Machine, Chest-Supported Row Machine, Assisted Pull up,
+Pec Deck, Shoulder Press Machine.
+5 Arms, delts & top-up: Dumbbell Lateral Raise, Dumbbell Rear Delt Fly,
+Dumbbell Curl (new), Tricep Pushdown, Leg Extension, Seated Leg Curl, Seated
+Calf Raise (2 sets).
+Main lifts: Chest Press, Shoulder Press, Chest-Supported Row, Lat Pulldown,
+Leg Press, Hip Thrust. First week only: Push on Thu 29 Oct (Back & Biceps
+was done Wed 28), then Legs, Upper, Arms. Loading keeps history, reuses old
+routine ids (A→Pull, B→Push, C→Legs, D→Upper, E→Arms) and matches exercises
+by name ignoring case/spaces/dashes (`normName`). Check at each programme
+check-in that leg press / leg extension strength holds; if it drops over two
+check-ins, add leg sets.
+Routines can set their own set count per exercise (`routine.sets = {exId: n}`,
+carried into the draft as `entry.n`; use `entryEx()` / `routineEx()`).
 
 **Session length:** `sessionMinutes(routine, date)` ≈ 5 min warm-up + per
 exercise 1 min setup + (3 s/rep + 10 s) per set + rest after each set (15 s
