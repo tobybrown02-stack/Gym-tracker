@@ -1902,7 +1902,8 @@ function loadNewPlan() {
 }
 
 function newPlanCard() {
-  if (state.settings.planLoaded === NEW_PLAN.id || snoozed(NEW_PLAN.id) || !state.routines.length) return '';
+  // Only for the owner's own data (they trained before this plan existed); new users never see it.
+  if (state.settings.planLoaded === NEW_PLAN.id || snoozed(NEW_PLAN.id) || !state.routines.length || !state.history.some((h) => h.date < '2026-10-29')) return '';
   const firstWeek = weekStart(todayISO()) === NEW_PLAN.firstWeek && dow(todayISO()) >= 2;
   return `<section class="card mb-4 border-indigo-500 dark:border-indigo-500">
     <p class="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Your new plan is ready</p>

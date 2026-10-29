@@ -198,6 +198,10 @@ check-ins, add leg sets.
 Routines can set their own set count per exercise (`routine.sets = {exId: n}`,
 carried into the draft as `entry.n`; use `entryEx()` / `routineEx()`).
 
+Other people can use the app too (the owner's girlfriend): same URL, own
+phone, separate data. The "new plan ready" card only shows for data with
+workouts before 29 Oct 2026; new users should use the plan builder.
+
 **Plan builder** (`view = 'builder'`, opened from the Plan tab card or an
 empty Workout tab; `state.planner = {answers, plan, step, main, savedAt}`):
 an 8-question questionnaire (about you, goal, experience, week/days/session
