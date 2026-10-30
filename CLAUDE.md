@@ -348,6 +348,19 @@ Checks on open at most every 30 min (`garminAutoSync`); `state.garmin.lastSync`
 version stored the key in `pot.garminKey`; it's now deleted on load.
 Data paths are best guesses: if numbers are missing, read the log in
 "Show details" and adjust both `garmin_sync.mjs` parsers.
+Added Oct 2026 (owner chose 1–3 of 6 offered): Garmin **Training Readiness**
+(`/metrics-service/metrics/trainingreadiness/{date}` → `tr`, `trLevel`,
+`trNote`; when present it sets the readiness level: ≥50 good, 25–49 mid,
+<25 low, app checks become reasons; ring on the Stats card), **sleep stages**
+(`deepM/lightM/remM/awakeM`, Garmin `needM`; `sleepStagesHtml`), and **watch
+gym sessions** (`/activitylist-service/activities/search/activities?startDate=&endDate=`
+→ `state.garmin.acts` [{id,date,time,type,name,mins,avgHR,maxHR}];
+`watchSession(date)` = longest strength-type activity; `routineForDay(date)`
+guesses the routine by exercise overlap; shown on Stats (real vs estimated
+minutes), History day headers (⌚) and Plan routine cards (last 3 real times)).
+The owner should start a strength activity on the watch each session.
+Not chosen: intensity minutes, VO2 max trend, recovery time. Advised against:
+watch calories, SpO2/respiration, Training Status/load.
 Owner wears the Instinct 3 to bed; no Garmin scale (weight stays in the app).
 Features: Workout-tab readiness card (`readiness()`: flags = sleep < 6 h or
 >1.25 h under 7-day avg, HRV under Garmin's baseline or 0.9 × 28-day median,

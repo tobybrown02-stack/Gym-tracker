@@ -90,7 +90,17 @@ async function day(date) {
     d.sleepScore = dig(sl, ['overallSleepScore', 'sleepScore']) ?? dig(sl?.dailySleepDTO?.sleepScores?.overall || sl?.sleepScores?.overall || null, ['value']);
     d.rhr ??= dig(sl, ['restingHeartRate']);
     d.hrv = dig(sl, ['avgOvernightHrv']);
+    // Sleep stages and Garmin's sleep need, in minutes.
+    const mins = (keys) => { const v = dig(sl, keys); return v == null ? null : Math.round(v / 60); };
+    d.deepM = mins(['deepSleepSeconds']); d.remM = mins(['remSleepSeconds']);
+    d.lightM = mins(['lightSleepSeconds']); d.awakeM = mins(['awakeSleepSeconds']);
+    const need = sl?.dailySleepDTO?.sleepNeed || sl?.sleepNeed;
+    d.needM = need ? dig(need, ['actual', 'baseline']) : null;
   }
+  // Garmin's own Training Readiness (0–100); not every account/endpoint has it.
+  const tr = await get(`/metrics-service/metrics/trainingreadiness/${date}`);
+  const trx = Array.isArray(tr) ? tr.find((x) => x?.calendarDate === date) || tr[0] : tr;
+  if (trx) { d.tr = dig(trx, ['score']); d.trLevel = digStr(trx, ['level']); d.trNote = digStr(trx, ['feedbackShort']); }
   return Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined));
 }
 
@@ -107,10 +117,26 @@ async function hrv(start, end) {
   return out;
 }
 
+/** Watch activities (for gym sessions: real duration and heart rate). */
+async function activities(start, end) {
+  const j = await get(`/activitylist-service/activities/search/activities?startDate=${start}&endDate=${end}&start=0&limit=100`);
+  const list = Array.isArray(j) ? j : j?.activities || j?.activityList || [];
+  return list.map((a) => {
+    const startLocal = String(a.startTimeLocal || a.startTimeGMT || '');
+    const secs = dig(a, ['duration', 'movingDuration', 'elapsedDuration']);
+    return {
+      id: a.activityId ?? a.id, date: startLocal.slice(0, 10), time: startLocal.slice(11, 16),
+      type: a.activityType?.typeKey || digStr(a, ['typeKey']) || '', name: a.activityName || '',
+      mins: secs ? Math.round(secs / 60) : null, avgHR: dig(a, ['averageHR', 'averageHeartRate']), maxHR: dig(a, ['maxHR', 'maxHeartRate']),
+    };
+  }).filter((a) => a.id != null && /^\d{4}-\d{2}-\d{2}$/.test(a.date));
+}
+
 // ----- main -----
 let prev = { days: {} };
 try { prev = await decrypt(JSON.parse(await readFile(FILE, 'utf8'))); } catch { /* first run, or the passphrase changed */ }
 const days = { ...(prev.days || {}) };
+const acts = Object.fromEntries((prev.acts || []).map((a) => [a.id, a]));
 const today = ukDate();
 const have = Object.keys(days).sort();
 let from = have.length ? addDays(have[have.length - 1], -2) : addDays(today, -(BACKFILL - 1));
@@ -125,16 +151,18 @@ try {
   }
   const h = await hrv(from, today);
   for (const [d, v] of Object.entries(h)) if (Object.keys(v).length) days[d] = { ...(days[d] || {}), ...v };
+  for (const a of await activities(from, today)) acts[a.id] = a;
 } catch (e) {
   error = e.message;
   console.error(error);
 }
 for (const d of Object.keys(days)) if (d < addDays(today, -KEEP_DAYS)) delete days[d];
+const actList = Object.values(acts).filter((a) => a.date >= addDays(today, -KEEP_DAYS)).sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
 
-const changed = JSON.stringify(days) !== JSON.stringify(prev.days || {}) || error !== (prev.error || null);
+const changed = JSON.stringify(days) !== JSON.stringify(prev.days || {}) || JSON.stringify(actList) !== JSON.stringify(prev.acts || []) || error !== (prev.error || null);
 if (changed || !prev.updated) {
   await mkdir('garmin-data', { recursive: true });
-  await writeFile(FILE, JSON.stringify(await encrypt({ days, updated: new Date().toISOString(), error, log: log.slice(-40) })) + '\n');
+  await writeFile(FILE, JSON.stringify(await encrypt({ days, acts: actList, updated: new Date().toISOString(), error, log: log.slice(-40) })) + '\n');
   console.log(`Saved ${Object.keys(days).length} days (from ${from}).`);
 } else console.log('No changes.');
 for (const l of log) console.log(l.status, l.path); // statuses only: reply bodies stay inside the encrypted file
