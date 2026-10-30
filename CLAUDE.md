@@ -329,17 +329,25 @@ client library; query names are best guesses, parsers dig for known fields):
 `/usersummary-service/usersummary/daily?calendarDate=` (steps, resting HR,
 stress, Body Battery), `/sleep-service/sleep/dailySleep?date=`,
 `/hrv-service/hrv/daily/{start}/{end}`. Range limits ~28–32 days (HRV 367).
-**The key is never in the code, chat or backups**: pasted in History →
-Settings → Garmin, stored in `localStorage['pot.garminKey']` (token in
-`pot.garminToken`); synced numbers in `state.garmin.days[date] = {sleepH,
-sleepScore, hrv, hrvLo, hrvHi, hrvStatus, rhr, bb, stress, steps}` (kept ~1 year).
-Sync: on open/visible at most every 3 h (`garminAutoSync`), first sync backfills
-14 days, "Sync now"; doesn't re-render while typing. `state.garmin.log` keeps the
-last sync's statuses + reply starts for troubleshooting ("Show details",
-never the key). **Untested against the real API from the sandbox** (proxy
-blocks Garmin): if the phone gets `blocked` (no CORS for web apps), fall back
-to a GitHub Actions job with the key as a repo secret that fetches daily and
-commits the data **encrypted** with a passphrase (the repo is public).
+**Garmin blocks browser calls (no CORS: the phone showed "blocked token"),
+so the data comes via GitHub Actions**: `.github/workflows/garmin.yml` runs
+`scripts/garmin_sync.mjs` (Node 22, no deps) every 2 hours 04:41–22:41 UTC and
+on demand. It uses repository secrets `GARMIN_API_KEY` and `GARMIN_PASSPHRASE`,
+fetches the last few days (first run 28), merges with the previous file and
+writes `garmin-data/garmin.enc.json` **encrypted** (AES-256-GCM, key from the
+passphrase via PBKDF2-SHA256 210k, random salt/iv; the repo is public). It
+also stores Garmin's reply starts (`log`) and any `error` inside the
+encrypted file; the public Actions log only prints statuses. The app
+(History → Settings → Garmin) stores the passphrase only in
+`localStorage['pot.garminPass']` (not in backups), downloads the file
+(`sw.js` never caches `/garmin-data/`), decrypts with WebCrypto
+(`garminDecrypt`) and merges into `state.garmin.days[date] = {sleepH,
+sleepScore, hrv, hrvLo, hrvHi, hrvStatus, rhr, bb, stress, steps}` (~1 year).
+Checks on open at most every 30 min (`garminAutoSync`); `state.garmin.lastSync`
+= when the job fetched, `checked` = when the app looked. The first, direct
+version stored the key in `pot.garminKey`; it's now deleted on load.
+Data paths are best guesses: if numbers are missing, read the log in
+"Show details" and adjust both `garmin_sync.mjs` parsers.
 Owner wears the Instinct 3 to bed; no Garmin scale (weight stays in the app).
 Features: Workout-tab readiness card (`readiness()`: flags = sleep < 6 h or
 >1.25 h under 7-day avg, HRV under Garmin's baseline or 0.9 × 28-day median,

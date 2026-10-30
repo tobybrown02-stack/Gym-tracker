@@ -1,0 +1,50 @@
+name: Garmin sync
+
+# Fetches Garmin data with the owner's Personal API key and saves it encrypted
+# (garmin-data/garmin.enc.json). Needs repository secrets GARMIN_API_KEY and
+# GARMIN_PASSPHRASE. Garmin doesn't allow the web app to call it directly.
+on:
+  schedule:
+    - cron: '41 4-22/2 * * *' # every 2 hours, early morning to late evening (UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency: garmin
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Fetch from Garmin
+        env:
+          GARMIN_API_KEY: ${{ secrets.GARMIN_API_KEY }}
+          GARMIN_PASSPHRASE: ${{ secrets.GARMIN_PASSPHRASE }}
+        run: node scripts/garmin_sync.mjs
+
+      - name: Commit encrypted data
+        if: always()
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add garmin-data
+          if git diff --cached --quiet; then echo 'No changes'; exit 0; fi
+          git commit -m 'Update Garmin data (encrypted)'
+          for i in 1 2 3; do git pull --rebase -q && git push && break; sleep 5; done
+
+      - name: Rebuild GitHub Pages
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"

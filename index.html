@@ -709,7 +709,7 @@ function seedState() {
     programme: null,
     pastProgrammes: [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null },
-    garmin: { days: {}, lastSync: null, error: null, log: [] },
+    garmin: { days: {}, lastSync: null, checked: null, error: null, log: [] },
     draft: null,
   };
 }
@@ -732,7 +732,7 @@ function migrate(d) {
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null, ...(d.planner || {}) },
-    garmin: { days: {}, lastSync: null, error: null, log: [], ...(d.garmin || {}) },
+    garmin: { days: {}, lastSync: null, checked: null, error: null, log: [], ...(d.garmin || {}) },
     draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, test: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -2548,132 +2548,62 @@ function routineEditor() {
 }
 
 // ----- Garmin (Personal API, Oct 2026) -----
-// The key lives only in this phone's storage (GARMIN_KEY), never in the code or backups.
-// It is swapped for a 24-hour access token; daily numbers are saved in state.garmin.days.
-const GARMIN_API = 'https://personal.connectapi.garmin.com';
-const GARMIN_TOKEN_URL = `${GARMIN_API}/personalapitoken-service/personal-api/personal-api-key/token`;
-const GARMIN_KEY = 'pot.garminKey', GARMIN_TOKEN = 'pot.garminToken';
-const GARMIN_BACKFILL = 14; // days fetched on the first sync
+// Garmin doesn't let web apps call its API directly, so a GitHub job
+// (.github/workflows/garmin.yml) fetches the data with the key kept as a
+// repository secret and saves it ENCRYPTED in garmin-data/garmin.enc.json.
+// The app unlocks it with the passphrase, which is stored only on this phone.
+const GARMIN_FILE = 'garmin-data/garmin.enc.json';
+const GARMIN_PASS = 'pot.garminPass';
+const REPO = (() => { const owner = location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : 'tobybrown02-stack'; const name = location.pathname.split('/').filter(Boolean)[0] || 'Gym-tracker'; return `${owner}/${name}`; })();
 let garminBusy = false;
-let garminLog = []; // last sync's requests (status + start of the reply) for troubleshooting; never includes the key
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
-const garminKey = () => lsGet(GARMIN_KEY);
+const garminOn = () => !!lsGet(GARMIN_PASS);
+lsSet('pot.garminKey', null); lsSet('pot.garminToken', null); // from the first (direct) version: the key now lives only in GitHub
 
-class GarminError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
-
-/** First number found under any of these keys, searching nested objects/arrays. */
-function dig(obj, keys, depth = 0) {
-  if (!obj || typeof obj !== 'object' || depth > 6) return null;
-  for (const k of keys) if (typeof obj[k] === 'number' && Number.isFinite(obj[k])) return obj[k];
-  for (const v of Object.values(obj)) { const r = dig(v, keys, depth + 1); if (r !== null) return r; }
-  return null;
-}
-const digStr = (obj, keys) => { if (!obj || typeof obj !== 'object') return null; for (const k of keys) if (typeof obj[k] === 'string') return obj[k]; for (const v of Object.values(obj)) { const r = digStr(v, keys); if (r) return r; } return null; };
-
-async function garminToken(force = false) {
-  const saved = JSON.parse(lsGet(GARMIN_TOKEN) || 'null');
-  if (!force && saved?.token && saved.exp > Date.now() + 5 * 60 * 1000) return saved.token;
-  const key = garminKey();
-  if (!key) throw new GarminError('nokey', 'Add your Garmin key first.');
-  let r;
-  try { r = await fetch(GARMIN_TOKEN_URL, { method: 'POST', headers: { Authorization: `ApiKey ${key}` } }); }
-  catch (e) { garminLog.push({ path: 'token', status: 'blocked' }); throw new GarminError('blocked', 'Garmin didn’t let the app connect from your phone.'); }
-  const text = await r.text();
-  garminLog.push({ path: 'token', status: r.status, body: r.ok ? '(token received)' : text.slice(0, 200) });
-  if (r.status === 401 || r.status === 403) throw new GarminError('badkey', 'Garmin didn’t accept the key. It may be mistyped or expired.');
-  if (r.status === 429) throw new GarminError('rate', 'Garmin says too many requests. Try again in an hour.');
-  if (!r.ok) throw new GarminError('http', `Garmin replied ${r.status} when asked for a token.`);
-  let j = {}; try { j = JSON.parse(text); } catch (e) { j = { token: text.trim() }; }
-  const token = typeof j === 'string' ? j : (j.access_token || j.accessToken || j.token || digStr(j, ['access_token', 'accessToken', 'token']));
-  if (!token) throw new GarminError('http', 'Garmin’s reply didn’t include a token.');
-  const secs = Number(j.expires_in || j.expiresIn) || 24 * 3600;
-  lsSet(GARMIN_TOKEN, JSON.stringify({ token, exp: Date.now() + secs * 1000 }));
-  return token;
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function garminDecrypt(f, pass) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(f.salt), iterations: f.iter }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(f.iv) }, key, unb64(f.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
 }
 
-async function garminGet(path) {
-  let token = await garminToken();
-  const go = (t) => fetch(GARMIN_API + path, { headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' } });
-  let r;
-  try { r = await go(token); } catch (e) { garminLog.push({ path, status: 'blocked' }); throw new GarminError('blocked', 'Garmin didn’t let the app connect from your phone.'); }
-  if (r.status === 401) { token = await garminToken(true); r = await go(token); }
-  const text = await r.text();
-  garminLog.push({ path: path.split('?')[0], status: r.status, body: text.slice(0, 160) });
-  if (r.status === 429) throw new GarminError('rate', 'Garmin says too many requests. Try again in an hour.');
-  if (!r.ok || !text) return null; // a missing day or an unsupported endpoint: skip it
-  try { return JSON.parse(text); } catch (e) { return null; }
-}
-
-/** Fetch one day: steps, resting HR, stress, Body Battery and sleep. */
-async function garminDay(date) {
-  const q = `calendarDate=${date}&date=${date}`;
-  const [sum, sleep] = [await garminGet(`/usersummary-service/usersummary/daily?${q}`), await garminGet(`/sleep-service/sleep/dailySleep?${q}`)];
-  const d = {};
-  if (sum) {
-    d.steps = dig(sum, ['totalSteps', 'steps']);
-    d.rhr = dig(sum, ['restingHeartRate', 'restingHeartRateValue']);
-    d.stress = dig(sum, ['averageStressLevel', 'avgStressLevel', 'overallStressLevel']);
-    d.bb = dig(sum, ['bodyBatteryAtWakeTime', 'bodyBatteryHighestValue', 'bodyBatteryMostRecentValue']);
-  }
-  if (sleep) {
-    const secs = dig(sleep, ['sleepTimeSeconds', 'totalSleepSeconds', 'sleepDurationSeconds']);
-    if (secs) d.sleepH = round1(secs / 3600);
-    d.sleepScore = dig(sleep, ['overallSleepScore', 'sleepScore']) ?? dig(sleep?.dailySleepDTO?.sleepScores?.overall || sleep?.sleepScores?.overall || null, ['value']);
-    d.rhr ??= dig(sleep, ['restingHeartRate']);
-    d.hrv ??= dig(sleep, ['avgOvernightHrv']);
-  }
-  return Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined));
-}
-
-/** HRV for a date range in one call (falls back to nothing if the endpoint differs). */
-async function garminHrv(start, end) {
-  const j = await garminGet(`/hrv-service/hrv/daily/${start}/${end}`);
-  const list = Array.isArray(j) ? j : j?.hrvSummaries || j?.summaries || [];
-  const out = {};
-  list.forEach((x) => {
-    const date = x.calendarDate || x.date;
-    if (!date) return;
-    out[date] = { hrv: dig(x, ['lastNightAvg', 'lastNight']), hrvLo: dig(x?.baseline || {}, ['balancedLow', 'lowUpper']), hrvHi: dig(x?.baseline || {}, ['balancedUpper', 'balancedHigh']), hrvStatus: x.status || null };
-  });
-  return out;
-}
-
+/** Download the encrypted file, unlock it and merge the days in. */
 async function garminSync(manual = false) {
-  if (garminBusy || !garminKey()) return;
-  garminBusy = true; garminLog = [];
-  const g = state.garmin, today = todayISO();
-  const have = Object.keys(g.days).sort();
-  let from = have.length ? (g.lastSync ? addDays(g.lastSync.slice(0, 10), -1) : addDays(today, -2)) : addDays(today, -(GARMIN_BACKFILL - 1));
-  if (from < addDays(today, -27)) from = addDays(today, -27); // Garmin caps most ranges at 28 days
+  const pass = lsGet(GARMIN_PASS);
+  if (garminBusy || !pass) return;
+  garminBusy = true;
+  const g = state.garmin;
   try {
-    if (manual) toast('Syncing Garmin…');
-    for (let d = from; d <= today; d = addDays(d, 1)) {
-      const day = await garminDay(d);
-      if (Object.keys(day).length) g.days[d] = { ...(g.days[d] || {}), ...day };
-    }
-    const hrv = await garminHrv(from, today);
-    Object.entries(hrv).forEach(([d, v]) => { const clean = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null)); if (Object.keys(clean).length) g.days[d] = { ...(g.days[d] || {}), ...clean }; });
-    const cutoff = addDays(today, -400); // keep about a year
+    if (manual) toast('Checking Garmin data…');
+    let r;
+    try { r = await fetch(`${GARMIN_FILE}?t=${Date.now()}`, { cache: 'no-store' }); } catch (e) { throw Object.assign(new Error('No connection. Try again with signal or wifi.'), { kind: 'offline' }); }
+    if (r.status === 404) throw Object.assign(new Error('No Garmin data yet. Run the GitHub job once (step 3) and give it a few minutes.'), { kind: 'nofile' });
+    if (!r.ok) throw Object.assign(new Error(`Couldn’t download the Garmin data (${r.status}).`), { kind: 'http' });
+    let data;
+    try { data = await garminDecrypt(await r.json(), pass); } catch (e) { throw Object.assign(new Error('Wrong passphrase: it must match the GARMIN_PASSPHRASE secret on GitHub exactly.'), { kind: 'pass' }); }
+    Object.entries(data.days || {}).forEach(([d, v]) => { g.days[d] = { ...(g.days[d] || {}), ...v }; });
+    const cutoff = addDays(todayISO(), -400);
     Object.keys(g.days).forEach((d) => { if (d < cutoff) delete g.days[d]; });
-    g.lastSync = new Date().toISOString(); g.error = null;
-    if (manual) toast(garminDaysWith(from).length ? 'Garmin data updated' : 'Connected, but Garmin sent no numbers. Tap “Show details” in Settings and send Claude a screenshot.');
+    g.lastSync = data.updated || null; g.checked = new Date().toISOString(); g.log = (data.log || []).slice(-40);
+    g.error = data.error ? { kind: 'garmin', msg: data.error } : null;
+    if (manual) toast(g.error ? g.error.msg : Object.keys(data.days || {}).length ? 'Garmin data updated' : 'Unlocked, but Garmin sent no numbers. Open Garmin settings → Show details and send Claude a screenshot.');
   } catch (e) {
-    g.error = { kind: e.kind || 'http', msg: e.message, at: new Date().toISOString() };
+    g.error = { kind: e.kind || 'http', msg: e.message };
+    g.checked = new Date().toISOString();
     if (manual) toast(e.message);
   }
-  g.log = garminLog.slice(-20);
   garminBusy = false;
   saveState();
   if (manual || !document.activeElement?.matches?.('input, select, textarea')) render(); // don't interrupt typing
 }
-const garminDaysWith = (from) => Object.keys(state.garmin.days).filter((d) => d >= from);
 
-/** Auto-sync when the app opens, at most every 3 hours. */
+/** Check for new data when the app opens, at most every 30 minutes (the GitHub job runs every 2 hours). */
 function garminAutoSync() {
-  const last = state.garmin.lastSync ? Date.parse(state.garmin.lastSync) : 0;
-  if (garminKey() && Date.now() - last > 3 * 3600 * 1000 && navigator.onLine !== false) garminSync(false);
+  const last = state.garmin.checked ? Date.parse(state.garmin.checked) : 0;
+  if (garminOn() && Date.now() - last > 30 * 60 * 1000 && navigator.onLine !== false) garminSync(false);
 }
 
 // ----- Garmin numbers: baselines and readiness -----
@@ -2706,7 +2636,7 @@ function readiness(date = todayISO()) {
 }
 
 function readinessHtml(date) {
-  if (!garminKey()) return '';
+  if (!garminOn()) return '';
   const r = readiness(date);
   if (!r) return '';
   const tone = { good: ['bg-emerald-500', 'text-emerald-700 dark:text-emerald-400', 'Ready'], mid: ['bg-amber-500', 'text-amber-700 dark:text-amber-300', 'Okay'], low: ['bg-rose-500', 'text-rose-600 dark:text-rose-400', 'Take it easier'] }[r.level];
@@ -2721,10 +2651,10 @@ function readinessHtml(date) {
 
 // ----- Garmin dashboard (Stats) -----
 function garminCard() {
-  if (!garminKey()) {
+  if (!garminOn()) {
     return `<section class="card mb-4">
       <h3 class="display text-xl">Garmin recovery</h3>
-      <p class="mt-1 text-sm muted">Connect your Garmin to see sleep, HRV, resting heart rate, Body Battery, stress and steps here, plus a readiness hint before you train.</p>
+      <p class="mt-1 text-sm muted">Connect your Garmin (one-off set-up, about 5 minutes) to see sleep, HRV, resting heart rate, Body Battery, stress and steps here, plus a readiness hint before you train.</p>
       <button class="btn-ghost mt-3 w-full" data-action="garmin-settings">Connect Garmin</button>
     </section>`;
   }
@@ -2734,10 +2664,10 @@ function garminCard() {
   let html = `<section class="card mb-4">
     <div class="flex items-center justify-between gap-2">
       <h3 class="display text-xl">Garmin recovery</h3>
-      <button class="link text-xs" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Syncing…' : 'Sync now'}</button>
+      <button class="link text-xs" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Checking…' : 'Check now'}</button>
     </div>
-    <p class="text-xs muted">${g.lastSync ? `Updated ${new Date(g.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'Not synced yet'}${g.error ? ` · <span class="text-rose-600 dark:text-rose-400">${esc(g.error.msg)}</span> <button class="link text-xs" data-action="garmin-settings">Fix</button>` : ''}</p>`;
-  if (!latest) return html + `<p class="mt-3 text-sm muted">No Garmin numbers yet. Tap Sync now.</p></section>`;
+    <p class="text-xs muted">${g.lastSync ? `Garmin data from ${new Date(g.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · refreshes every 2 hours` : 'No data yet'}${g.error ? ` · <span class="text-rose-600 dark:text-rose-400">${esc(g.error.msg)}</span> <button class="link text-xs" data-action="garmin-settings">Fix</button>` : ''}</p>`;
+  if (!latest) return html + `<p class="mt-3 text-sm muted">No Garmin numbers yet. Open History → Settings → Garmin to finish setting up.</p></section>`;
   const t = gDay(latest), y = addDays(latest, -1);
   const rhrBase = median(gSeries('rhr', y, 28)), hrvBase = median(gSeries('hrv', y, 28));
   const sleep7 = mean(gSeries('sleepH', latest, 7)), steps7 = mean(gSeries('steps', addDays(today, -1), 7));
@@ -2782,7 +2712,7 @@ function stepsWeightChart() {
 
 /** Weekly averages for the recap and check-ins. */
 function garminAverages(start, end) {
-  if (!garminKey() && !Object.keys(state.garmin.days).length) return null;
+  if (!garminOn() && !Object.keys(state.garmin.days).length) return null;
   const ds = Object.keys(state.garmin.days).filter((d) => d >= start && d <= end);
   if (!ds.length) return null;
   const avgOf = (k) => mean(ds.map((d) => gDay(d)[k]).filter((v) => typeof v === 'number'));
@@ -2792,36 +2722,44 @@ const garminAvgText = (a) => [a.sleep && `sleep ${fmt(round1(a.sleep))} h`, a.st
 
 // ----- Garmin settings (modal) -----
 function garminModal() {
-  const key = garminKey(), g = state.garmin;
+  const g = state.garmin, gh = `https://github.com/${REPO}`;
   const log = (g.log || []).map((l) => `${l.status} ${l.path}${l.body ? ` → ${l.body}` : ''}`).join('\n');
+  const steps = `<ol class="list-decimal space-y-2 pl-5 text-sm">
+      <li><b>Make a Garmin key</b> on Garmin Connect (web): Settings → Personal API Key → Create Key, longest expiry. Copy it.</li>
+      <li><b>Save two secrets on GitHub</b> (<a class="link" href="${gh}/settings/secrets/actions/new" target="_blank" rel="noopener">open the page</a>, signed in):
+        <ul class="mt-1 list-disc pl-5"><li>Name <code class="font-bold">GARMIN_API_KEY</code>, value: your Garmin key.</li>
+        <li>Name <code class="font-bold">GARMIN_PASSPHRASE</code>, value: a passphrase you make up (e.g. three random words). Keep it in the Passwords app.</li></ul>
+        Secrets can’t be read back by anyone, including Claude.</li>
+      <li><b>Run the job once</b>: <a class="link" href="${gh}/actions/workflows/garmin.yml" target="_blank" rel="noopener">open it</a> → Run workflow → Run workflow. After that it runs by itself every 2 hours. Wait 2–3 minutes for the first run.</li>
+      <li><b>Enter the same passphrase here.</b></li>
+    </ol>`;
   return `${modalHead('Garmin')}
-    ${key ? `<div class="space-y-3">
-      <p class="rounded-xl bg-emerald-500/10 p-3 text-sm">Key saved on this phone (ends …${esc(key.slice(-4))}). ${g.lastSync ? `Last sync ${new Date(g.lastSync).toLocaleString('en-GB')}.` : 'Not synced yet.'} ${Object.keys(g.days).length} days stored.</p>
-      ${g.error ? `<p class="rounded-xl bg-rose-500/10 p-3 text-sm">${esc(g.error.msg)}${g.error.kind === 'blocked' ? ' This means Garmin doesn’t allow web apps to connect directly. Tell Claude: the fallback is a free daily GitHub job that fetches it for you.' : g.error.kind === 'badkey' ? ' Make a new key on Garmin Connect (Settings → Personal API Key) and paste it below.' : ''}</p>` : ''}
-      <button class="btn-primary w-full" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Syncing…' : 'Sync now'}</button>
+    ${garminOn() ? `<div class="space-y-3">
+      <p class="rounded-xl bg-emerald-500/10 p-3 text-sm">Passphrase saved on this phone. ${g.lastSync ? `Garmin data from ${new Date(g.lastSync).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : 'No data yet.'} ${Object.keys(g.days).length} days stored. It refreshes about every 2 hours.</p>
+      ${g.error ? `<p class="rounded-xl bg-rose-500/10 p-3 text-sm">${esc(g.error.msg)}</p>` : ''}
+      <button class="btn-primary w-full" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Checking…' : 'Check for new data'}</button>
+      <p class="text-xs muted">Want it right now? <a class="link" href="${gh}/actions/workflows/garmin.yml" target="_blank" rel="noopener">Run the GitHub job</a>, wait 2–3 minutes, then tap the button above.</p>
+      <details class="rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60"><summary class="cursor-pointer font-semibold">Set-up steps</summary><div class="mt-2">${steps}</div></details>
       <details class="rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60"><summary class="cursor-pointer font-semibold">Show details (for troubleshooting)</summary>
-        <p class="mt-2 text-xs muted">What Garmin replied on the last sync. Safe to screenshot: it never shows your key.</p>
+        <p class="mt-2 text-xs muted">What Garmin replied on the job’s last run. Safe to screenshot: it never contains your key.</p>
         <pre class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-all text-[11px]">${esc(log) || 'Nothing yet.'}</pre></details>
-      <div class="flex items-center justify-between"><button class="link" data-action="garmin-replace">Replace key</button><button class="link text-rose-600 dark:text-rose-400" data-action="garmin-remove">Disconnect</button></div>
+      <div class="flex items-center justify-between"><button class="link" data-action="garmin-replace">Change passphrase</button><button class="link text-rose-600 dark:text-rose-400" data-action="garmin-remove">Disconnect</button></div>
     </div>` : `<form id="garmin-form" class="space-y-3">
-      <ol class="list-decimal space-y-1 pl-5 text-sm">
-        <li>On Garmin Connect (web), go to <b>Settings → Personal API Key</b> and tap <b>Create Key</b>. Pick the longest expiry.</li>
-        <li>Copy the key (it’s only shown once; keep a copy in the Passwords app).</li>
-        <li>Paste it here.</li>
-      </ol>
-      <label class="block"><span class="label">Garmin Personal API key</span><input id="garmin-key" class="input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="Paste your key"></label>
-      <p class="text-xs muted">Saved only on this phone. It isn’t in the app’s code or your backup files, and only reads your data. A new phone or a reinstall needs the key pasted again.</p>
-      <button type="submit" class="btn-primary w-full">Save and connect</button>
+      <p class="text-sm muted">Garmin doesn’t let web apps connect directly, so a free GitHub job fetches your data every 2 hours and saves it locked with a passphrase. Your key stays in GitHub as a secret.</p>
+      ${steps}
+      <label class="block"><span class="label">Your passphrase</span><input id="garmin-pass" class="input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="Same as GARMIN_PASSPHRASE"></label>
+      <p class="text-xs muted">Saved only on this phone (not in backups). A new phone or a reinstall needs it again.</p>
+      <button type="submit" class="btn-primary w-full">Save and unlock</button>
     </form>`}`;
 }
 
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'garmin-form') return;
   e.preventDefault();
-  const key = document.getElementById('garmin-key').value.trim().replace(/^ApiKey\s+/i, '');
-  if (!key) return;
-  lsSet(GARMIN_KEY, key); lsSet(GARMIN_TOKEN, null);
-  state.garmin.error = null; state.garmin.lastSync = null;
+  const pass = document.getElementById('garmin-pass').value;
+  if (!pass) return;
+  lsSet(GARMIN_PASS, pass);
+  state.garmin.error = null; state.garmin.checked = null;
   renderModal();
   garminSync(true);
 });
@@ -2832,10 +2770,10 @@ document.addEventListener('click', (e) => {
   switch (b.dataset.action) {
     case 'garmin-settings': modal = { type: 'garmin' }; renderModal(); return;
     case 'garmin-sync': garminSync(true); render(); return;
-    case 'garmin-replace': lsSet(GARMIN_KEY, null); lsSet(GARMIN_TOKEN, null); renderModal(); return;
+    case 'garmin-replace': lsSet(GARMIN_PASS, null); renderModal(); return;
     case 'garmin-remove':
-      if (!confirm('Disconnect Garmin? The key is removed from this phone. Numbers already synced stay in your stats.')) return;
-      lsSet(GARMIN_KEY, null); lsSet(GARMIN_TOKEN, null); state.garmin.error = null; saveState(); modal = null; render(); return;
+      if (!confirm('Disconnect Garmin on this phone? The passphrase is removed. Numbers already synced stay in your stats. To stop the GitHub job too, delete the GARMIN_API_KEY secret.')) return;
+      lsSet(GARMIN_PASS, null); state.garmin.error = null; saveState(); modal = null; render(); return;
   }
 });
 
@@ -3423,8 +3361,8 @@ function historyView() {
   html += `<section class="card mt-6 space-y-3">
     <h3 class="font-semibold">Settings</h3>
     <button class="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-100 px-3 py-3 text-left dark:bg-slate-800/60" data-action="garmin-settings">
-      <span><span class="block font-medium">Garmin</span><span class="block text-xs muted">${garminKey() ? `Connected${state.garmin.lastSync ? ` · synced ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}` : 'Sleep, HRV, resting HR, Body Battery, steps'}</span></span>
-      <span class="link">${garminKey() ? 'Manage' : 'Connect'}</span>
+      <span><span class="block font-medium">Garmin</span><span class="block text-xs muted">${garminOn() ? `Connected${state.garmin.lastSync ? ` · synced ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}` : 'Sleep, HRV, resting HR, Body Battery, steps'}</span></span>
+      <span class="link">${garminOn() ? 'Manage' : 'Connect'}</span>
     </button>
     <label class="grid grid-cols-[1fr_7rem] items-center gap-3">
       <span><span class="block font-medium">Barbell weight</span><span class="text-xs muted">Used by the plate calculator</span></span>
