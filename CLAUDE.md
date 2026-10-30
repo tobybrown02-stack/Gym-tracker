@@ -195,6 +195,13 @@ routine ids (A→Pull, B→Push, C→Legs, D→Upper, E→Arms) and matches exer
 by name ignoring case/spaces/dashes (`normName`). Check at each programme
 check-in that leg press / leg extension strength holds; if it drops over two
 check-ins, add leg sets.
+"Suggested fixes" card (`fixesCard()` / `planFixes()`, Workout + Plan tabs, Oct 30
+2026, once; `settings.fixesApplied`): after the owner edited the plan, it
+removes a duplicate exercise on Legs and adds Seated Calf Raise back,
+Incline Chest Press → 2 sets, and supersets (`routine.links`, pairs made
+adjacent) Rear Delt Fly + Hammer Curl, Pec Deck + Lat pulldown, Tricep Pushdown
++ Preacher Curl, Leg Extension + leg curl, to get sessions back under an hour.
+Only changes that still apply are shown, with before → after minutes.
 Routines can set their own set count per exercise (`routine.sets = {exId: n}`,
 carried into the draft as `entry.n`; use `entryEx()` / `routineEx()`).
 

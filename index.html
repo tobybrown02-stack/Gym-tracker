@@ -991,7 +991,7 @@ function todayView() {
   let html = `<section class="mb-4">${weekStrip(weekStart(today))}
     <div class="mt-2 flex justify-end"><button class="link text-xs" data-action="open-plates">Plate calculator</button></div>
   </section>`;
-  if (!active) html += newPlanCard();
+  if (!active) html += newPlanCard() + fixesCard();
   html += progBanner(active ? d.date : today);
   const dl = active ? d.pdl : isDeloadWeek(today);
 
@@ -2438,6 +2438,84 @@ function planTable(start) {
   </div>`;
 }
 
+
+// ----- One-off "suggested fixes" for the owner's plan (Oct 2026) -----
+// Checked against the routines as they are now; only changes that still apply are offered.
+const FIXES_ID = 'fixes-2026-10-30';
+function planFixes(commit = false) {
+  const created = [], changes = [];
+  const routines = state.routines.map((r) => ({ ...r, exerciseIds: [...r.exerciseIds], sets: { ...(r.sets || {}) }, links: { ...(r.links || {}) } }));
+  const find = (re, not) => routines.find((r) => re.test(r.name) && !(not && not.test(r.name)));
+  const idx = (r, re) => r.exerciseIds.findIndex((id) => re.test(exById(id)?.name || ''));
+  const setsOf = (r, id) => r.sets[id] || exById(id)?.sets || 3;
+  /** Put the exercise matching `bRe` straight after the one matching `aRe` and superset them. */
+  const pair = (r, aRe, bRe, label) => {
+    const a = idx(r, aRe), b = idx(r, bRe);
+    if (a < 0 || b < 0) return;
+    const aId = r.exerciseIds[a];
+    if (r.links[aId] && b === a + 1) return;
+    const [bId] = r.exerciseIds.splice(b, 1);
+    r.exerciseIds.splice(r.exerciseIds.indexOf(aId) + 1, 0, bId);
+    r.links[aId] = true;
+    changes.push({ r, text: `Superset ${exById(aId).name} with ${exById(bId).name}: do one, then straight into the other, then rest.` });
+  };
+  const legs = find(/legs/i, /top-up|arms/i);
+  if (legs) {
+    const seen = new Set(), dupes = [];
+    legs.exerciseIds = legs.exerciseIds.filter((id) => { const k = normName(exById(id)?.name || id); if (seen.has(k)) { dupes.push(exById(id)?.name); return false; } seen.add(k); return true; });
+    if (dupes.length) changes.push({ r: legs, text: `Remove the second ${dupes.join(', ')} (it’s in there twice).` });
+    if (idx(legs, /calf raise/i) < 0) {
+      const own = state.exercises.find((e) => normName(e.name) === normName('Seated Calf Raise'));
+      const ex = own || (commit ? planExercise('Seated Calf Raise', created) : null);
+      if (ex) legs.exerciseIds.push(ex.id);
+      changes.push({ r: legs, text: 'Add Seated Calf Raise (3 sets) at the end, so calves get about 5 sets a week again.' });
+    }
+  }
+  const push = find(/push/i);
+  if (push) {
+    const i = idx(push, /incline chest press/i);
+    if (i >= 0 && setsOf(push, push.exerciseIds[i]) > 2) { push.sets[push.exerciseIds[i]] = 2; changes.push({ r: push, text: 'Incline Chest Press Machine: 2 sets instead of 3. Chest still gets plenty from Chest Press and Pec Deck.' }); }
+  }
+  const pull = find(/pull/i);
+  if (pull) pair(pull, /rear delt/i, /hammer curl/i);
+  const upper = find(/upper/i);
+  if (upper) pair(upper, /pec deck/i, /lat pull ?down/i);
+  const arms = find(/arms|top-up/i);
+  if (arms) { pair(arms, /tricep pushdown/i, /preacher curl/i); pair(arms, /leg extension/i, /leg curl/i); }
+  if (commit) {
+    routines.forEach((r) => { Object.keys(r.sets).forEach((id) => { if (!r.exerciseIds.includes(id)) delete r.sets[id]; }); Object.keys(r.links).forEach((id) => { if (!r.exerciseIds.includes(id)) delete r.links[id]; }); });
+    state.routines = routines;
+    state.settings.fixesApplied = FIXES_ID;
+  }
+  return { changes, routines, created };
+}
+
+function fixesCard() {
+  if (state.settings.fixesApplied === FIXES_ID || snoozed(FIXES_ID) || state.settings.planLoaded !== NEW_PLAN.id || state.draft?.entries.length) return '';
+  const { changes } = planFixes();
+  if (!changes.length) return '';
+  const date = addDays(weekStart(todayISO()), 7); // a normal (non-deload) week for the time estimates
+  const byR = [...new Set(changes.map((c) => c.r))].sort((a, b) => state.routines.findIndex((x) => x.id === a.id) - state.routines.findIndex((x) => x.id === b.id));
+  return `<section class="card relative mb-4 overflow-hidden pl-7">
+    <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full bg-emerald-500" aria-hidden="true"></span>
+    <p class="eyebrow">Suggested fixes</p>
+    <h3 class="display mt-1 text-2xl leading-none">Tidy up your plan</h3>
+    <p class="mt-1 text-sm muted">Brings your sessions back towards your hour and puts calves back on leg day. Nothing else changes.</p>
+    <div class="mt-3 space-y-3">${byR.map((r) => {
+      const orig = routineById(r.id), before = sessionMinutes(orig, date, false), after = sessionMinutes(r, date, false);
+      return `<div>
+        <p class="flex items-center gap-2 font-semibold">${plateDot(orig)}<span class="display text-lg font-normal">${esc(r.name)}</span><span class="ml-auto text-xs font-semibold tabular-nums ${after > 60 ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-400'}">≈ ${before} → ${after} min</span></p>
+        <ul class="mt-1 space-y-1 text-sm">${changes.filter((c) => c.r === r).map((c) => `<li class="flex gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400"></span><span>${esc(c.text)}</span></li>`).join('')}</ul>
+      </div>`;
+    }).join('')}</div>
+    <p class="mt-3 text-xs muted">History, progress, targets and the 12-week programme stay as they are. You can undo any of it by editing the routine.</p>
+    <div class="mt-3 flex items-center gap-4">
+      <button class="btn-primary flex-1" data-action="apply-fixes">Apply suggested fixes</button>
+      <button class="link" data-action="snooze" data-key="${FIXES_ID}" data-days="3">Not now</button>
+    </div>
+  </section>`;
+}
+
 // ----- Plan tab -----
 function planView() {
   const weekEnd = addDays(planWeek, 6);
@@ -2446,6 +2524,7 @@ function planView() {
 
   let html = `<h2 class="mb-4 text-3xl">Plan</h2>
   ${newPlanCard()}
+  ${fixesCard()}
   ${builderCard()}
   ${programmeCard()}
   ${balanceCard()}
@@ -5087,6 +5166,13 @@ document.addEventListener('click', (e) => {
       else state.planner.answers = { ...builderDefaults(), ...state.planner.answers };
       if (!state.planner.plan) state.planner.step = 'intro';
       view = 'builder'; saveState(); render(); window.scrollTo(0, 0); return;
+    }
+    case 'apply-fixes': {
+      if (!confirm('Apply the suggested fixes to your routines? History, progress and the programme are kept.')) return;
+      const { changes, created } = planFixes(true);
+      saveState(); render();
+      toast(`${changes.length} change${changes.length === 1 ? '' : 's'} applied${created.length ? `. Added ${created.join(', ')}` : ''}`);
+      return;
     }
     case 'balance-mode': balanceMode = btn.dataset.mode; render(); return;
     case 'balance-direct': balanceDirect = !!btn.dataset.on; render(); return;
