@@ -351,6 +351,11 @@ Checks on open at most every 30 min (`garminAutoSync`); `state.garmin.lastSync`
 version stored the key in `pot.garminKey`; it's now deleted on load.
 Data paths are best guesses: if numbers are missing, read the log in
 "Show details" and adjust both `garmin_sync.mjs` parsers.
+First real run (30 Oct 2026): token, daily summary, sleep (incl. stages) and
+activities all 200. HRV 200 but `lastNightAvg`/`baseline` null, status "NONE",
+feedback "ONBOARDING" (Garmin needs ~3 weeks of nights). Training Readiness
+404 NOT_FOUND for personal keys, so the job no longer requests it; the app
+code for it is kept dormant.
 Added Oct 2026 (owner chose 1–3 of 6 offered): Garmin **Training Readiness**
 (`/metrics-service/metrics/trainingreadiness/{date}` → `tr`, `trLevel`,
 `trNote`; when present it sets the readiness level: ≥50 good, 25–49 mid,

@@ -97,10 +97,9 @@ async function day(date) {
     const need = sl?.dailySleepDTO?.sleepNeed || sl?.sleepNeed;
     d.needM = need ? dig(need, ['actual', 'baseline']) : null;
   }
-  // Garmin's own Training Readiness (0–100); not every account/endpoint has it.
-  const tr = await get(`/metrics-service/metrics/trainingreadiness/${date}`);
-  const trx = Array.isArray(tr) ? tr.find((x) => x?.calendarDate === date) || tr[0] : tr;
-  if (trx) { d.tr = dig(trx, ['score']); d.trLevel = digStr(trx, ['level']); d.trNote = digStr(trx, ['feedbackShort']); }
+  // Garmin's Training Readiness isn't offered to personal keys (the metrics-service
+  // endpoint returned 404 NOT_FOUND, Oct 2026). The app's tr/trLevel/trNote fields
+  // stay ready in case Garmin adds it: put the request back here if it does.
   return Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined));
 }
 
