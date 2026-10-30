@@ -198,12 +198,39 @@ routine ids (A→Pull, B→Push, C→Legs, D→Upper, E→Arms) and matches exer
 by name ignoring case/spaces/dashes (`normName`). Check at each programme
 check-in that leg press / leg extension strength holds; if it drops over two
 check-ins, add leg sets.
+**The owner then edited the routines themselves (seen in screenshots 30 Oct
+2026; their phone data, not in the code):**
+1 Push (Wed): Chest Press Machine, Incline Chest Press Machine, Pec Deck (3),
+Shoulder Press Machine, Dumbbell Lateral Raise (2), Tricep Pushdown.
+2 Pull (Thu): Chest-Supported Row Machine, Assisted Pull up, Lat pulldown,
+Dumbbell Rear Delt Fly, Hammer Curl, Preacher Curl Machine.
+3 Legs (Fri): Leg Press, Hip Thrust Machine, Leg Extension, Seated Leg Curl,
+Hip Abduction Machine ×2 (second is probably their old "Hip adductor",
+renamed by mistake), no calf raise.
+4 Upper (Sat): Chest Press Machine, Chest-Supported Row Machine, Assisted
+Pull up, Pec Deck (3), Lat pulldown, Landmine Press.
+5 Arms, delts & top-up (Sun): Dumbbell Lateral Raise, Cable Rear Delt Fly,
+Tricep Pushdown, Leg Extension, Seated Calf Raise (2), Preacher Curl Machine,
+Lying Leg Curl.
+App estimates were 58–68 min (over the hour on 4 days). Advice given: fix the
+duplicate / add calves back on Legs, trim Incline to 2 sets, superset
+antagonist pairs on Arms. A one-tap "suggested fixes" card was built and
+then **removed at the owner's request**: they make routine edits themselves,
+so give advice, don't push routine changes unless asked. Their own Lat
+pulldown / Assisted Pull up probably have Biceps marked as a main muscle.
+Note: my first review wrongly said chest > back; the balance card was counting
+a changed week (Push twice, no Pull). Always check which week a number is for.
 Routines can set their own set count per exercise (`routine.sets = {exId: n}`,
 carried into the draft as `entry.n`; use `entryEx()` / `routineEx()`).
 
 Other people can use the app too (the owner's girlfriend): same URL, own
 phone, separate data. The "new plan ready" card only shows for data with
-workouts before 29 Oct 2026; new users should use the plan builder.
+workouts before 29 Oct 2026; new users should use the plan builder. Garmin
+for anyone else would need their own repo/secrets (the job serves one person).
+Costs explained to the owner: GitHub Pages free limits are 100 GB traffic a
+month (soft) and 1 GB site; usage is a few MB a month; Actions are free for
+public repos; nothing can bill without a payment method. Claude Pro usage
+limits mean waiting, not charges (unless they turn on paid extra usage).
 
 **Plan builder** (`view = 'builder'`, opened from the Plan tab card or an
 empty Workout tab; `state.planner = {answers, plan, step, main, savedAt}`):
@@ -381,6 +408,10 @@ the block before.
 ## Ideas not done yet
 
 Offered to the owner and not chosen (yet):
+- Garmin extras: weekly intensity minutes (NHS 150), VO2 max trend, Garmin
+  recovery time. (Training Readiness isn't available to personal keys.)
+- Shareable workout summary image; share a builder plan as a code; records
+  board with milestone badges.
 - Keep the screen awake during a workout (Wake Lock API) so the rest timer
   can alert; iOS pauses web timers when locked.
 - Pinned per-exercise notes (seat height, machine, cue) shown every session.
