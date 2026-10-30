@@ -1704,6 +1704,14 @@ function recapHtml(start, dismissible) {
  * Planned working sets per muscle for a week. typical = the repeating weekly schedule
  * (ignores one-off day changes). Also returns, per muscle, which exercises the sets come from.
  */
+/** The one muscle an exercise mainly trains: the library's first main muscle when the name matches, else the first one you marked as main. */
+function mainMuscle(ex) {
+  const lib = LIBRARY.find((it) => normName(it.name) === normName(ex.name));
+  const pick = (mus) => MUSCLES.find((m) => mus?.[m] === 1);
+  if (lib) { const libMain = (lib.muscles && Object.keys(lib.muscles).find((m) => lib.muscles[m] === 1)); if (libMain && ex.muscles?.[libMain]) return libMain; }
+  return pick(ex.muscles) || null;
+}
+
 function plannedVolume(start, typical = false, direct = false) {
   const out = Object.fromEntries(MUSCLES.map((m) => [m, 0])), from = Object.fromEntries(MUSCLES.map((m) => [m, []])), days = [];
   DAYS.forEach((name, i) => {
@@ -1712,7 +1720,8 @@ function plannedVolume(start, typical = false, direct = false) {
     days.push(`${name} ${r.name.replace(/^\d+\s*·\s*/, '')}`);
     r.exerciseIds.map(exById).filter(Boolean).forEach((ex) => {
       const n = targetFor(routineEx(r, ex), isDeloadWeek(d), d).reps.length;
-      Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (m in out && (!direct || f === 1)) { out[m] += n * f; from[m].push({ name: ex.name, day: name, n, f }); } });
+      const main = direct && mainMuscle(ex);
+      Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (m in out && (!direct || m === main)) { out[m] += n * (direct ? 1 : f); from[m].push({ name: ex.name, day: name, n, f: direct ? 1 : f }); } });
     });
   });
   return Object.assign(out, { [Symbol.for('from')]: from, [Symbol.for('days')]: days });
@@ -1770,7 +1779,7 @@ function balanceCard() {
           : '<p class="mb-1 mt-1 text-xs muted">Nothing in your plan trains this directly.</p>'}
       </details>`;
     }).join('')}</div>
-    <p class="mt-3 text-[11px] leading-relaxed muted"><span class="inline-block h-2 w-3 rounded-full bg-emerald-500/30"></span> shaded band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets, the usual range for growth. <b class="text-emerald-700 dark:text-emerald-400">Good</b> inside it, <b class="text-amber-700 dark:text-amber-300">Low</b> under ${SET_TARGET[0]}, <b class="text-violet-600 dark:text-violet-400">High</b> over ${SET_TARGET[1]}. ${balanceDirect ? 'Direct work only: each set counts for the muscle the exercise mainly works (a chest press counts for chest, not triceps). Arms and shoulders also get a lot of extra work from pressing and pulling, so their band here is 6–14 direct sets.' : 'With helper sets: a set counts in full for the muscle an exercise mainly works, and as ½ for muscles that help (like triceps on a chest press).'}</p>
+    <p class="mt-3 text-[11px] leading-relaxed muted"><span class="inline-block h-2 w-3 rounded-full bg-emerald-500/30"></span> shaded band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets, the usual range for growth. <b class="text-emerald-700 dark:text-emerald-400">Good</b> inside it, <b class="text-amber-700 dark:text-amber-300">Low</b> under ${SET_TARGET[0]}, <b class="text-violet-600 dark:text-violet-400">High</b> over ${SET_TARGET[1]}. ${balanceDirect ? 'Direct work only: each exercise counts for one muscle, the one it mainly works (a chest press counts for chest, a lat pulldown for back, a curl for biceps). Arms and shoulders also get a lot of extra work from pressing and pulling, so their band here is 6–14 direct sets.' : 'With helper sets: a set counts in full for the muscle an exercise mainly works, and as ½ for muscles that help (like triceps on a chest press).'}</p>
     ${low.length ? `<div class="mt-3 space-y-2 rounded-xl bg-amber-500/10 p-3 text-sm">${low.map((m) => {
       const f = fillers(m);
       return `<p><b>${m}: ${fmt(round1(vol[m]))} sets</b>, aim for ${band(m)[0]}+.${f.length ? ` Try adding: ${f.map(esc).join(', ')}.` : ''}</p>`;

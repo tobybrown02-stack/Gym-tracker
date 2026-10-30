@@ -245,7 +245,10 @@ The owner was confused when it counted a changed week (Push twice, no Pull),
 so it lists the sessions counted, counts **direct work only** by default
 (primary muscle sets; owner asked for this after biceps showed 24 incl. ½
 sets from rows; toggle `balanceDirect` adds helper ½ sets back; in direct mode biceps/triceps
-use a 6–14 band since compounds already hit them), labels Good/Low/High, and each muscle opens
+use a 6–14 band since compounds already hit them; direct mode counts each
+exercise for ONE muscle, `mainMuscle(ex)`: the library's first main muscle
+when the name matches, else the first muscle marked main in `MUSCLES` order,
+because the owner's own back exercises have Biceps tagged as main), labels Good/Low/High, and each muscle opens
 to show which exercises its sets come from. Every muscle shown so untrained ones stand out; muscles
 under 10 sets (not Core) get library suggestions (`fillers`, machines first,
 never squats/deadlifts). **Muscle trend** (Stats, `muscleTrendCard`): 12 weeks
