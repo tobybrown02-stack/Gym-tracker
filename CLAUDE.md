@@ -238,8 +238,12 @@ tab on Mon/Tue (owner's rest days; "Hide" snoozes it) and on Stats for the
 selected week.
 
 **Muscle balance** (Plan tab, `balanceCard()`): planned working sets per
-muscle for the Plan week from the schedule (`plannedVolume`, programme
-sets/deloads included), every muscle shown so untrained ones stand out; muscles
+muscle (`plannedVolume(start, typical)`, programme sets/deloads included).
+Defaults to "Your usual week" (weekly schedule, ignoring one-off day changes);
+when the Plan week has changes a toggle shows that week too (`balanceMode`).
+The owner was confused when it counted a changed week (Push twice, no Pull),
+so it lists the sessions counted, labels Good/Low/High, and each muscle opens
+to show which exercises its sets come from. Every muscle shown so untrained ones stand out; muscles
 under 10 sets (not Core) get library suggestions (`fillers`, machines first,
 never squats/deadlifts). **Muscle trend** (Stats, `muscleTrendCard`): 12 weeks
 of done sets for one muscle (`statsMuscle`), deload weeks amber.

@@ -757,6 +757,7 @@ let planWeek = weekStart(todayISO());
 let statsWeek = weekStart(todayISO());
 let statsExId = null;
 let statsMuscle = 'Back';
+let balanceMode = 'typical'; // muscle balance: 'typical' weekly schedule or 'week' with one-off changes
 let statsMonth = todayISO().slice(0, 7); // YYYY-MM shown in the month calendar
 let lib = { query: '', eq: '', muscle: '', step: 4, picked: new Map() }; // library browser state
 
@@ -1698,17 +1699,22 @@ function recapHtml(start, dismissible) {
 
 // ----- Muscle balance (planned sets) -----
 /** Working sets per muscle the weekly plan will give you (secondary muscles count ½). */
-function plannedVolume(start) {
-  const out = Object.fromEntries(MUSCLES.map((m) => [m, 0]));
-  DAYS.forEach((_, i) => {
-    const d = addDays(start, i), r = plannedRoutine(d);
+/**
+ * Planned working sets per muscle for a week. typical = the repeating weekly schedule
+ * (ignores one-off day changes). Also returns, per muscle, which exercises the sets come from.
+ */
+function plannedVolume(start, typical = false) {
+  const out = Object.fromEntries(MUSCLES.map((m) => [m, 0])), from = Object.fromEntries(MUSCLES.map((m) => [m, []])), days = [];
+  DAYS.forEach((name, i) => {
+    const d = addDays(start, i), r = typical ? routineById(state.schedule.weekly[i]) : plannedRoutine(d);
     if (!r) return;
+    days.push(`${name} ${r.name.replace(/^\d+\s*·\s*/, '')}`);
     r.exerciseIds.map(exById).filter(Boolean).forEach((ex) => {
       const n = targetFor(routineEx(r, ex), isDeloadWeek(d), d).reps.length;
-      Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (m in out) out[m] += n * f; });
+      Object.entries(ex.muscles || {}).forEach(([m, f]) => { if (m in out) { out[m] += n * f; from[m].push({ name: ex.name, day: name, n, f }); } });
     });
   });
-  return out;
+  return Object.assign(out, { [Symbol.for('from')]: from, [Symbol.for('days')]: days });
 }
 
 /** Library exercises that mainly train a muscle and aren't in your list yet (no squats or deadlifts). */
@@ -1720,31 +1726,48 @@ function fillers(muscle) {
 
 function balanceCard() {
   if (!state.routines.length) return '';
-  const vol = plannedVolume(planWeek), deload = isDeloadWeek(planWeek);
-  const tagged = MUSCLES; // show every muscle, so one with no exercises at all stands out
+  const thisWeek = planWeek === weekStart(todayISO());
+  const differs = DAYS.some((_, i) => state.schedule.overrides[addDays(planWeek, i)] !== undefined);
+  const typical = balanceMode === 'typical' || !differs;
+  const vol = plannedVolume(planWeek, typical), deload = isDeloadWeek(planWeek);
+  const from = vol[Symbol.for('from')], days = vol[Symbol.for('days')];
   if (!MUSCLES.some((m) => vol[m] > 0)) return '';
-  const max = Math.max(22, ...tagged.map((m) => vol[m]));
-  const low = deload ? [] : tagged.filter((m) => vol[m] < SET_TARGET[0] && m !== 'Core');
+  const max = Math.max(22, ...MUSCLES.map((m) => vol[m]));
+  const low = deload ? [] : MUSCLES.filter((m) => vol[m] < SET_TARGET[0] && m !== 'Core');
   const pct = (v) => `${(v / max) * 100}%`;
+  const status = (v) => (deload ? ['Deload', 'bg-amber-500', 'text-amber-700 dark:text-amber-300'] : v < SET_TARGET[0] ? ['Low', 'bg-amber-500', 'text-amber-700 dark:text-amber-300']
+    : v <= SET_TARGET[1] ? ['Good', 'bg-emerald-500', 'text-emerald-700 dark:text-emerald-400'] : ['High', 'bg-violet-500', 'text-violet-600 dark:text-violet-400']);
   return `<section class="card mb-4">
-    <h3 class="font-semibold">Muscle balance</h3>
-    <p class="text-xs muted">Working sets your plan gives each muscle ${planWeek === weekStart(todayISO()) ? 'this week' : `in the week of ${fmtShort(planWeek)}`}, before you train · secondary muscles count ½ · band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets</p>
-    ${deload ? '<p class="mt-2 rounded-xl bg-amber-500/10 p-2 text-sm text-amber-800 dark:text-amber-300">Deload week: low numbers are the point.</p>' : ''}
-    <div class="mt-3 space-y-2">${tagged.map((m) => {
-      const v = vol[m], tone = deload ? 'bg-amber-500' : v < SET_TARGET[0] ? 'bg-rose-500' : v <= SET_TARGET[1] ? 'bg-emerald-500' : 'bg-indigo-500';
-      return `<div class="grid grid-cols-[5.5rem_1fr_2.5rem] items-center gap-2">
-        <span class="text-sm font-medium">${m}</span>
-        <div class="relative h-4 rounded bg-slate-100 dark:bg-slate-800">
-          <div class="absolute inset-y-0 rounded bg-emerald-500/15" style="left:${pct(SET_TARGET[0])};width:${pct(SET_TARGET[1] - SET_TARGET[0])}"></div>
-          <div class="absolute inset-y-0 left-0 rounded ${tone}" style="width:${v ? `max(4px, ${pct(v)})` : '0'}"></div>
-        </div>
-        <span class="text-right text-sm font-semibold tabular-nums">${fmt(round1(v))}</span>
-      </div>`;
+    <h3 class="display text-xl">Muscle balance</h3>
+    <p class="mt-1 text-sm muted">How many hard sets each muscle gets in a week from your plan. Tap a muscle to see where its sets come from.</p>
+    ${differs ? `<div class="mt-3 grid grid-cols-2 gap-1.5">
+      <button class="seg ${typical ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300' : ''}" data-action="balance-mode" data-mode="typical">Your usual week</button>
+      <button class="seg ${!typical ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300' : ''}" data-action="balance-mode" data-mode="week">${thisWeek ? 'This week' : 'That week'} (changed)</button>
+    </div>` : ''}
+    <p class="mt-2 text-xs muted"><b class="text-slate-700 dark:text-slate-200">Counting:</b> ${days.map(esc).join(' · ') || 'no sessions'}</p>
+    ${deload ? '<p class="mt-2 rounded-xl bg-amber-500/10 p-2 text-sm text-amber-800 dark:text-amber-300">Deload week: half the sets, so low numbers are the point.</p>' : ''}
+    <div class="mt-3 divide-y divide-slate-200 dark:divide-slate-800">${MUSCLES.map((m) => {
+      const v = vol[m], [word, tone, text] = status(v);
+      const rows = from[m].sort((a, b) => b.f - a.f || DAYS.indexOf(a.day) - DAYS.indexOf(b.day));
+      return `<details class="py-1.5">
+        <summary class="grid cursor-pointer list-none grid-cols-[5.25rem_1fr_2.25rem_2.75rem] items-center gap-2">
+          <span class="text-sm font-medium">${m}</span>
+          <span class="relative h-3 rounded-full bg-slate-100 dark:bg-slate-800">
+            <span class="absolute inset-y-0 rounded-full bg-emerald-500/15" style="left:${pct(SET_TARGET[0])};width:${pct(SET_TARGET[1] - SET_TARGET[0])}"></span>
+            <span class="absolute inset-y-0 left-0 rounded-full ${tone}" style="width:${v ? `max(4px, ${pct(v)})` : '0'}"></span>
+          </span>
+          <span class="text-right text-sm font-bold tabular-nums">${fmt(round1(v))}</span>
+          <span class="text-right text-[11px] font-bold uppercase ${v ? text : 'muted'}">${v ? word : '—'}</span>
+        </summary>
+        ${rows.length ? `<ul class="mb-1 mt-1.5 space-y-0.5 rounded-lg bg-slate-100 p-2 text-xs dark:bg-slate-800/60">${rows.map((x) => `<li class="flex justify-between gap-2"><span class="min-w-0 truncate">${x.day} · ${esc(x.name)}</span><span class="shrink-0 tabular-nums">${x.n} set${x.n === 1 ? '' : 's'}${x.f < 1 ? ` × ½ = ${fmt(x.n * x.f)}` : ''}</span></li>`).join('')}</ul>`
+          : '<p class="mb-1 mt-1 text-xs muted">Nothing in your plan trains this directly.</p>'}
+      </details>`;
     }).join('')}</div>
-    ${low.length ? `<div class="mt-3 space-y-2 rounded-xl bg-rose-500/10 p-3 text-sm">${low.map((m) => {
+    <p class="mt-3 text-[11px] leading-relaxed muted"><span class="inline-block h-2 w-3 rounded-full bg-emerald-500/30"></span> shaded band = ${SET_TARGET[0]}–${SET_TARGET[1]} sets, the usual range for growth. <b class="text-emerald-700 dark:text-emerald-400">Good</b> inside it, <b class="text-amber-700 dark:text-amber-300">Low</b> under ${SET_TARGET[0]}, <b class="text-violet-600 dark:text-violet-400">High</b> over ${SET_TARGET[1]}. When an exercise mainly works one muscle it counts a full set there; muscles that only help (like triceps on a chest press) get half a set.</p>
+    ${low.length ? `<div class="mt-3 space-y-2 rounded-xl bg-amber-500/10 p-3 text-sm">${low.map((m) => {
       const f = fillers(m);
       return `<p><b>${m}: ${fmt(round1(vol[m]))} sets</b>, aim for ${SET_TARGET[0]}+.${f.length ? ` Try adding: ${f.map(esc).join(', ')}.` : ''}</p>`;
-    }).join('')}<p class="text-xs muted">Add one from Exercises → Browse exercise library, then put it in a routine. 2–3 extra sets on two days is usually enough.</p></div>`
+    }).join('')}<p class="text-xs muted">Fine to leave low for muscles you only want to keep (like legs). Otherwise add one from Exercises → Browse exercise library, then put it in a routine.</p></div>`
       : deload ? '' : '<p class="mt-3 text-sm text-emerald-700 dark:text-emerald-400">Every trained muscle gets at least 10 sets. Nicely balanced.</p>'}
   </section>`;
 }
@@ -5058,6 +5081,7 @@ document.addEventListener('click', (e) => {
       if (!state.planner.plan) state.planner.step = 'intro';
       view = 'builder'; saveState(); render(); window.scrollTo(0, 0); return;
     }
+    case 'balance-mode': balanceMode = btn.dataset.mode; render(); return;
     case 'stats-month': {
       const [y, m] = statsMonth.split('-').map(Number), dt = new Date(y, m - 1 + Number(btn.dataset.dir), 1);
       statsMonth = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
