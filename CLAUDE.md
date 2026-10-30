@@ -242,7 +242,10 @@ muscle (`plannedVolume(start, typical)`, programme sets/deloads included).
 Defaults to "Your usual week" (weekly schedule, ignoring one-off day changes);
 when the Plan week has changes a toggle shows that week too (`balanceMode`).
 The owner was confused when it counted a changed week (Push twice, no Pull),
-so it lists the sessions counted, labels Good/Low/High, and each muscle opens
+so it lists the sessions counted, counts **direct work only** by default
+(primary muscle sets; owner asked for this after biceps showed 24 incl. ½
+sets from rows; toggle `balanceDirect` adds helper ½ sets back; in direct mode biceps/triceps
+use a 6–14 band since compounds already hit them), labels Good/Low/High, and each muscle opens
 to show which exercises its sets come from. Every muscle shown so untrained ones stand out; muscles
 under 10 sets (not Core) get library suggestions (`fillers`, machines first,
 never squats/deadlifts). **Muscle trend** (Stats, `muscleTrendCard`): 12 weeks
