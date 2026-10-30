@@ -51,6 +51,9 @@ before changing anything.
   renamed from gym-tracker to Gym-tracker).
 - After a push the app shows an "update available" banner (it compares its own
   script text with a fresh copy), so phones pick up changes with one tap.
+- Settings shows "Version xxxxxx" (`appVersion()`, a hash of the script text), so
+  the owner can confirm which version the phone runs; compute the expected value
+  after a push to compare.
 - Never put a literal closing script tag inside the main script (it ends the
   script block); the update check builds it from split strings.
 - Update this file in the same commit as any feature change.

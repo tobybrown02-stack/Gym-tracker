@@ -155,6 +155,8 @@
 
 const STORE_KEY = 'pot.v1';
 const SELF_CODE = document.currentScript?.textContent || ''; // used to spot newer published versions
+/** Short fingerprint of this version's code, shown in Settings (changes with every update). */
+const appVersion = () => { let h = 0; for (let i = 0; i < SELF_CODE.length; i++) h = (Math.imul(h, 31) + SELF_CODE.charCodeAt(i)) | 0; return (h >>> 0).toString(36).slice(0, 6); };
 const MAX_ROUTINES = 5;
 const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Core'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -3423,7 +3425,7 @@ function historyView() {
   }
 
   html += `<section class="card mt-6 space-y-3">
-    <h3 class="font-semibold">Settings</h3>
+    <div class="flex items-baseline justify-between gap-2"><h3 class="font-semibold">Settings</h3><span class="text-[11px] tabular-nums muted">Version ${appVersion()}</span></div>
     <button class="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-100 px-3 py-3 text-left dark:bg-slate-800/60" data-action="garmin-settings">
       <span><span class="block font-medium">Garmin</span><span class="block text-xs muted">${garminOn() ? `Connected${state.garmin.lastSync ? ` · synced ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}` : 'Sleep, HRV, resting HR, Body Battery, steps'}</span></span>
       <span class="link">${garminOn() ? 'Manage' : 'Connect'}</span>
