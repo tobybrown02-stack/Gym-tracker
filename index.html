@@ -709,6 +709,7 @@ function seedState() {
     programme: null,
     pastProgrammes: [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null },
+    garmin: { days: {}, lastSync: null, error: null, log: [] },
     draft: null,
   };
 }
@@ -731,6 +732,7 @@ function migrate(d) {
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null, ...(d.planner || {}) },
+    garmin: { days: {}, lastSync: null, error: null, log: [], ...(d.garmin || {}) },
     draft: d.draft ? { routineId: null, pdl: false, ...d.draft, entries: d.draft.entries.map((en) => ({ note: '', rpe: '', deload: false, test: false, showWarmup: false, ...en })) } : null,
   };
 }
@@ -1032,6 +1034,7 @@ function todayView() {
     }
     html += `</section>`;
     html += todayTiles(today);
+    html += readinessHtml(today);
     const lastWeek = addDays(weekStart(today), -7);
     if (dow(today) <= 1 && !snoozed(`recap-${lastWeek}`)) html += recapHtml(lastWeek, true); // Monday & Tuesday
 
@@ -1606,6 +1609,8 @@ function progReviewModal() {
         <span class="min-w-0 truncate">${l.dir > 0 ? '▲' : '▼'} ${esc(l.ex.name)}</span><span class="shrink-0 text-xs tabular-nums muted">${l.text}</span></li>`).join('')}</ul></div>`;
   }
 
+  const ga = garminAverages(addDays(c.date, -27), c.date), gaPrev = garminAverages(addDays(prev.date, -27), prev.date);
+  if (ga && garminAvgText(ga)) html += `<p class="mt-3 text-sm"><span class="muted">Garmin, last 4 weeks:</span> ${garminAvgText(ga)}${gaPrev && garminAvgText(gaPrev) ? `<br><span class="muted">Block before: ${garminAvgText(gaPrev)}</span>` : ''}</p>`;
   const advice = [];
   if (rate < -0.75) advice.push('You’re losing faster than a slow cut (0.25–0.5 kg a week). To hold on to muscle while you build strength, add about 150 kcal a day in Food → Targets & profile.');
   else if (rate <= -0.15) advice.push('Weight loss is right in the slow-cut zone. Keep your calories as they are.');
@@ -1693,6 +1698,7 @@ function recapHtml(start, dismissible) {
       ${tile('Weight trend', r.weight !== null ? `${fmt(round1(r.weight))} kg` : '—', r.weightChange !== null ? `${r.weightChange > 0 ? '+' : r.weightChange < 0 ? '−' : ''}${fmt(Math.abs(round2(r.weightChange)))} kg this week` : 'no weigh-ins')}
     </div>
     ${r.kcal !== null ? `<p class="mt-3 text-sm"><span class="muted">Food (${r.foodDays} logged day${r.foodDays === 1 ? '' : 's'}):</span> avg <b>${fmtKg(r.kcal)}</b>${r.kcalT ? `<span class="muted"> / ${fmtKg(r.kcalT)}</span>` : ''} kcal · protein <b>${r.protein}</b>${r.proteinT ? `<span class="muted"> / ${r.proteinT}</span>` : ''} g</p>` : ''}
+    ${(() => { const ga = garminAverages(r.start, r.end); return ga && garminAvgText(ga) ? `<p class="mt-2 text-sm"><span class="muted">Garmin avg:</span> ${garminAvgText(ga)}</p>` : ''; })()}
     ${r.prs.length ? `<p class="mt-2 text-sm"><span class="font-semibold text-amber-700 dark:text-amber-300">🏆 ${r.prs.length} PR${r.prs.length === 1 ? '' : 's'}:</span> ${r.prs.slice(0, 5).map((x) => `${esc(x.name)} (${x.items.join(', ')})`).join(' · ')}</p>` : ''}
     ${r.low.length && !(r.week && isDeloadWeek(start)) ? `<p class="mt-2 text-sm muted">Under ${SET_TARGET[0]} sets: ${r.low.join(', ')}</p>` : ''}
   </section>`;
@@ -2541,6 +2547,298 @@ function routineEditor() {
   </article>`;
 }
 
+// ----- Garmin (Personal API, Oct 2026) -----
+// The key lives only in this phone's storage (GARMIN_KEY), never in the code or backups.
+// It is swapped for a 24-hour access token; daily numbers are saved in state.garmin.days.
+const GARMIN_API = 'https://personal.connectapi.garmin.com';
+const GARMIN_TOKEN_URL = `${GARMIN_API}/personalapitoken-service/personal-api/personal-api-key/token`;
+const GARMIN_KEY = 'pot.garminKey', GARMIN_TOKEN = 'pot.garminToken';
+const GARMIN_BACKFILL = 14; // days fetched on the first sync
+let garminBusy = false;
+let garminLog = []; // last sync's requests (status + start of the reply) for troubleshooting; never includes the key
+
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
+const garminKey = () => lsGet(GARMIN_KEY);
+
+class GarminError extends Error { constructor(kind, msg) { super(msg); this.kind = kind; } }
+
+/** First number found under any of these keys, searching nested objects/arrays. */
+function dig(obj, keys, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 6) return null;
+  for (const k of keys) if (typeof obj[k] === 'number' && Number.isFinite(obj[k])) return obj[k];
+  for (const v of Object.values(obj)) { const r = dig(v, keys, depth + 1); if (r !== null) return r; }
+  return null;
+}
+const digStr = (obj, keys) => { if (!obj || typeof obj !== 'object') return null; for (const k of keys) if (typeof obj[k] === 'string') return obj[k]; for (const v of Object.values(obj)) { const r = digStr(v, keys); if (r) return r; } return null; };
+
+async function garminToken(force = false) {
+  const saved = JSON.parse(lsGet(GARMIN_TOKEN) || 'null');
+  if (!force && saved?.token && saved.exp > Date.now() + 5 * 60 * 1000) return saved.token;
+  const key = garminKey();
+  if (!key) throw new GarminError('nokey', 'Add your Garmin key first.');
+  let r;
+  try { r = await fetch(GARMIN_TOKEN_URL, { method: 'POST', headers: { Authorization: `ApiKey ${key}` } }); }
+  catch (e) { garminLog.push({ path: 'token', status: 'blocked' }); throw new GarminError('blocked', 'Garmin didn’t let the app connect from your phone.'); }
+  const text = await r.text();
+  garminLog.push({ path: 'token', status: r.status, body: r.ok ? '(token received)' : text.slice(0, 200) });
+  if (r.status === 401 || r.status === 403) throw new GarminError('badkey', 'Garmin didn’t accept the key. It may be mistyped or expired.');
+  if (r.status === 429) throw new GarminError('rate', 'Garmin says too many requests. Try again in an hour.');
+  if (!r.ok) throw new GarminError('http', `Garmin replied ${r.status} when asked for a token.`);
+  let j = {}; try { j = JSON.parse(text); } catch (e) { j = { token: text.trim() }; }
+  const token = typeof j === 'string' ? j : (j.access_token || j.accessToken || j.token || digStr(j, ['access_token', 'accessToken', 'token']));
+  if (!token) throw new GarminError('http', 'Garmin’s reply didn’t include a token.');
+  const secs = Number(j.expires_in || j.expiresIn) || 24 * 3600;
+  lsSet(GARMIN_TOKEN, JSON.stringify({ token, exp: Date.now() + secs * 1000 }));
+  return token;
+}
+
+async function garminGet(path) {
+  let token = await garminToken();
+  const go = (t) => fetch(GARMIN_API + path, { headers: { Authorization: `Bearer ${t}`, Accept: 'application/json' } });
+  let r;
+  try { r = await go(token); } catch (e) { garminLog.push({ path, status: 'blocked' }); throw new GarminError('blocked', 'Garmin didn’t let the app connect from your phone.'); }
+  if (r.status === 401) { token = await garminToken(true); r = await go(token); }
+  const text = await r.text();
+  garminLog.push({ path: path.split('?')[0], status: r.status, body: text.slice(0, 160) });
+  if (r.status === 429) throw new GarminError('rate', 'Garmin says too many requests. Try again in an hour.');
+  if (!r.ok || !text) return null; // a missing day or an unsupported endpoint: skip it
+  try { return JSON.parse(text); } catch (e) { return null; }
+}
+
+/** Fetch one day: steps, resting HR, stress, Body Battery and sleep. */
+async function garminDay(date) {
+  const q = `calendarDate=${date}&date=${date}`;
+  const [sum, sleep] = [await garminGet(`/usersummary-service/usersummary/daily?${q}`), await garminGet(`/sleep-service/sleep/dailySleep?${q}`)];
+  const d = {};
+  if (sum) {
+    d.steps = dig(sum, ['totalSteps', 'steps']);
+    d.rhr = dig(sum, ['restingHeartRate', 'restingHeartRateValue']);
+    d.stress = dig(sum, ['averageStressLevel', 'avgStressLevel', 'overallStressLevel']);
+    d.bb = dig(sum, ['bodyBatteryAtWakeTime', 'bodyBatteryHighestValue', 'bodyBatteryMostRecentValue']);
+  }
+  if (sleep) {
+    const secs = dig(sleep, ['sleepTimeSeconds', 'totalSleepSeconds', 'sleepDurationSeconds']);
+    if (secs) d.sleepH = round1(secs / 3600);
+    d.sleepScore = dig(sleep, ['overallSleepScore', 'sleepScore']) ?? dig(sleep?.dailySleepDTO?.sleepScores?.overall || sleep?.sleepScores?.overall || null, ['value']);
+    d.rhr ??= dig(sleep, ['restingHeartRate']);
+    d.hrv ??= dig(sleep, ['avgOvernightHrv']);
+  }
+  return Object.fromEntries(Object.entries(d).filter(([, v]) => v !== null && v !== undefined));
+}
+
+/** HRV for a date range in one call (falls back to nothing if the endpoint differs). */
+async function garminHrv(start, end) {
+  const j = await garminGet(`/hrv-service/hrv/daily/${start}/${end}`);
+  const list = Array.isArray(j) ? j : j?.hrvSummaries || j?.summaries || [];
+  const out = {};
+  list.forEach((x) => {
+    const date = x.calendarDate || x.date;
+    if (!date) return;
+    out[date] = { hrv: dig(x, ['lastNightAvg', 'lastNight']), hrvLo: dig(x?.baseline || {}, ['balancedLow', 'lowUpper']), hrvHi: dig(x?.baseline || {}, ['balancedUpper', 'balancedHigh']), hrvStatus: x.status || null };
+  });
+  return out;
+}
+
+async function garminSync(manual = false) {
+  if (garminBusy || !garminKey()) return;
+  garminBusy = true; garminLog = [];
+  const g = state.garmin, today = todayISO();
+  const have = Object.keys(g.days).sort();
+  let from = have.length ? (g.lastSync ? addDays(g.lastSync.slice(0, 10), -1) : addDays(today, -2)) : addDays(today, -(GARMIN_BACKFILL - 1));
+  if (from < addDays(today, -27)) from = addDays(today, -27); // Garmin caps most ranges at 28 days
+  try {
+    if (manual) toast('Syncing Garmin…');
+    for (let d = from; d <= today; d = addDays(d, 1)) {
+      const day = await garminDay(d);
+      if (Object.keys(day).length) g.days[d] = { ...(g.days[d] || {}), ...day };
+    }
+    const hrv = await garminHrv(from, today);
+    Object.entries(hrv).forEach(([d, v]) => { const clean = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null)); if (Object.keys(clean).length) g.days[d] = { ...(g.days[d] || {}), ...clean }; });
+    const cutoff = addDays(today, -400); // keep about a year
+    Object.keys(g.days).forEach((d) => { if (d < cutoff) delete g.days[d]; });
+    g.lastSync = new Date().toISOString(); g.error = null;
+    if (manual) toast(garminDaysWith(from).length ? 'Garmin data updated' : 'Connected, but Garmin sent no numbers. Tap “Show details” in Settings and send Claude a screenshot.');
+  } catch (e) {
+    g.error = { kind: e.kind || 'http', msg: e.message, at: new Date().toISOString() };
+    if (manual) toast(e.message);
+  }
+  g.log = garminLog.slice(-20);
+  garminBusy = false;
+  saveState();
+  if (manual || !document.activeElement?.matches?.('input, select, textarea')) render(); // don't interrupt typing
+}
+const garminDaysWith = (from) => Object.keys(state.garmin.days).filter((d) => d >= from);
+
+/** Auto-sync when the app opens, at most every 3 hours. */
+function garminAutoSync() {
+  const last = state.garmin.lastSync ? Date.parse(state.garmin.lastSync) : 0;
+  if (garminKey() && Date.now() - last > 3 * 3600 * 1000 && navigator.onLine !== false) garminSync(false);
+}
+
+// ----- Garmin numbers: baselines and readiness -----
+const gDay = (d) => state.garmin.days[d] || {};
+function gSeries(key, end, n) { return Array.from({ length: n }, (_, i) => gDay(addDays(end, -i))[key]).filter((v) => typeof v === 'number'); }
+const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const mean = (a) => (a.length ? sum(a) / a.length : null);
+
+/** Today's recovery against your own normal. Returns null until there's last night's sleep or HRV. */
+function readiness(date = todayISO()) {
+  const t = gDay(date);
+  if (t.sleepH == null && t.hrv == null && t.rhr == null) return null;
+  const y = addDays(date, -1);
+  const rhrBase = median(gSeries('rhr', y, 28)), hrvBase = median(gSeries('hrv', y, 28)), sleepAvg = mean(gSeries('sleepH', y, 7));
+  const flags = [], good = [];
+  if (t.sleepH != null) { if (t.sleepH < 6 || (sleepAvg && t.sleepH < sleepAvg - 1.25 && t.sleepH < 7)) flags.push(`short sleep (${fmt(t.sleepH)} h)`); else if (t.sleepH >= 7) good.push(`${fmt(t.sleepH)} h sleep`); }
+  if (t.hrv != null) {
+    const low = t.hrvLo ? t.hrv < t.hrvLo : hrvBase && t.hrv < hrvBase * 0.9;
+    if (low || /low|poor|unbalanced/i.test(t.hrvStatus || '')) flags.push('HRV below your normal'); else if (hrvBase || t.hrvLo) good.push('HRV normal');
+  }
+  if (t.rhr != null && rhrBase) { if (t.rhr >= rhrBase + 5) flags.push(`resting HR up ${Math.round(t.rhr - rhrBase)}`); else good.push('resting HR normal'); }
+  if (t.bb != null && t.bb < 30) flags.push(`Body Battery ${Math.round(t.bb)}`);
+  const level = flags.length >= 2 ? 'low' : flags.length === 1 ? 'mid' : 'good';
+  const advice = {
+    good: 'Recovered. Train as planned.',
+    mid: 'A bit under. Train as planned, but don’t push the last set past RPE 8–9.',
+    low: 'Low recovery. Take today easier: stop sets at RPE 7–8, or drop the last set of each exercise. Food and sleep matter more than one session.',
+  }[level];
+  return { level, flags, good, advice, t, rhrBase, hrvBase, sleepAvg };
+}
+
+function readinessHtml(date) {
+  if (!garminKey()) return '';
+  const r = readiness(date);
+  if (!r) return '';
+  const tone = { good: ['bg-emerald-500', 'text-emerald-700 dark:text-emerald-400', 'Ready'], mid: ['bg-amber-500', 'text-amber-700 dark:text-amber-300', 'Okay'], low: ['bg-rose-500', 'text-rose-600 dark:text-rose-400', 'Take it easier'] }[r.level];
+  return `<section class="card relative mb-4 overflow-hidden pl-7">
+    <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full ${tone[0]}" aria-hidden="true"></span>
+    <div class="flex items-center justify-between gap-2"><p class="eyebrow">Garmin · readiness</p><button class="link text-xs" data-action="nav" data-view="stats">Details</button></div>
+    <p class="display mt-1 text-2xl leading-none ${tone[1]}">${tone[2]}</p>
+    <p class="mt-1 text-sm">${r.advice}</p>
+    <p class="mt-1 text-xs muted">${[...r.flags, ...r.good].map(esc).join(' · ')}</p>
+  </section>`;
+}
+
+// ----- Garmin dashboard (Stats) -----
+function garminCard() {
+  if (!garminKey()) {
+    return `<section class="card mb-4">
+      <h3 class="display text-xl">Garmin recovery</h3>
+      <p class="mt-1 text-sm muted">Connect your Garmin to see sleep, HRV, resting heart rate, Body Battery, stress and steps here, plus a readiness hint before you train.</p>
+      <button class="btn-ghost mt-3 w-full" data-action="garmin-settings">Connect Garmin</button>
+    </section>`;
+  }
+  const g = state.garmin, today = todayISO();
+  const latest = Object.keys(g.days).sort().reverse().find((d) => d <= today && Object.keys(g.days[d]).length);
+  const tile = (label, value, unit, sub, tone = '') => `<div class="min-w-0 bg-white p-3 dark:bg-slate-900"><p class="label">${label}</p><p class="display text-3xl leading-none tabular-nums ${tone}">${value ?? '—'}${value != null && unit ? `<span class="ml-1 font-sans text-xs font-semibold normal-case muted">${unit}</span>` : ''}</p><p class="mt-1 text-[11px] leading-snug muted">${sub}</p></div>`;
+  let html = `<section class="card mb-4">
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="display text-xl">Garmin recovery</h3>
+      <button class="link text-xs" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Syncing…' : 'Sync now'}</button>
+    </div>
+    <p class="text-xs muted">${g.lastSync ? `Updated ${new Date(g.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'Not synced yet'}${g.error ? ` · <span class="text-rose-600 dark:text-rose-400">${esc(g.error.msg)}</span> <button class="link text-xs" data-action="garmin-settings">Fix</button>` : ''}</p>`;
+  if (!latest) return html + `<p class="mt-3 text-sm muted">No Garmin numbers yet. Tap Sync now.</p></section>`;
+  const t = gDay(latest), y = addDays(latest, -1);
+  const rhrBase = median(gSeries('rhr', y, 28)), hrvBase = median(gSeries('hrv', y, 28));
+  const sleep7 = mean(gSeries('sleepH', latest, 7)), steps7 = mean(gSeries('steps', addDays(today, -1), 7));
+  const r = readiness(latest);
+  html += `${latest !== today ? `<p class="mt-1 text-xs muted">Showing ${fmtDay(latest)}.</p>` : ''}
+    ${r ? `<p class="mt-2 rounded-xl p-2 text-sm ${{ good: 'bg-emerald-500/10', mid: 'bg-amber-500/10', low: 'bg-rose-500/10' }[r.level]}">${r.advice}</p>` : ''}
+    <div class="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-slate-200 bg-slate-200 dark:border-slate-800 dark:bg-slate-800">
+      ${tile('Sleep', t.sleepH != null ? fmt(t.sleepH) : null, 'h', `${t.sleepScore ? `Score ${Math.round(t.sleepScore)} · ` : ''}${sleep7 ? `7-day avg ${fmt(round1(sleep7))} h` : ''}`, t.sleepH != null && t.sleepH < 6 ? 'text-rose-500' : '')}
+      ${tile('HRV', t.hrv != null ? Math.round(t.hrv) : null, 'ms', t.hrvLo && t.hrvHi ? `Your normal ${Math.round(t.hrvLo)}–${Math.round(t.hrvHi)}${t.hrvStatus ? ` · ${esc(String(t.hrvStatus).toLowerCase())}` : ''}` : hrvBase ? `4-week normal ≈ ${Math.round(hrvBase)}` : 'Needs a few nights')}
+      ${tile('Resting HR', t.rhr != null ? Math.round(t.rhr) : null, 'bpm', rhrBase ? `4-week normal ${Math.round(rhrBase)}${t.rhr != null ? ` (${t.rhr - rhrBase >= 0 ? '+' : ''}${Math.round(t.rhr - rhrBase)})` : ''}` : 'Needs a few days', t.rhr != null && rhrBase && t.rhr >= rhrBase + 5 ? 'text-rose-500' : '')}
+      ${tile('Body Battery', t.bb != null ? Math.round(t.bb) : null, '', 'This morning (or today’s high)', t.bb != null && t.bb < 30 ? 'text-rose-500' : '')}
+      ${tile('Stress', t.stress != null ? Math.round(t.stress) : null, '', 'Average for the day (0–100)')}
+      ${tile('Steps', t.steps != null ? fmtKg(t.steps) : null, '', steps7 ? `7-day avg ${fmtKg(steps7)}` : 'So far today')}
+    </div>
+    ${stepsWeightChart()}
+    <p class="mt-3 text-[11px] leading-relaxed muted">Readiness compares today with your own normal: short sleep (under 6 h), HRV below your usual range, resting heart rate 5+ above your 4-week normal, or Body Battery under 30. Two or more means take it easier. It never changes your targets.</p>
+  </section>`;
+  return html;
+}
+
+/** 28 days of steps (bars) with the weight trend (line) on top. */
+function stepsWeightChart() {
+  const today = todayISO(), n = 28, days = Array.from({ length: n }, (_, i) => addDays(today, i - n + 1));
+  const steps = days.map((d) => gDay(d).steps ?? null);
+  if (steps.filter((v) => v != null).length < 3) return '';
+  const W = 320, H = 120, pad = 4, bw = (W - pad * 2) / n;
+  const maxS = Math.max(8000, ...steps.filter((v) => v != null));
+  const series = weightSeries(), trend = days.map((d) => { const p = series.filter((x) => x.date <= d).pop(); return p && daysBetween(p.date, d) <= 14 ? p.trend : null; });
+  const tv = trend.filter((v) => v != null), lo = Math.min(...tv), hi = Math.max(...tv), span = Math.max(1, hi - lo);
+  const y = (v) => H - 14 - ((v - lo) / span) * (H - 34);
+  const pts = trend.map((v, i) => (v == null ? null : `${(pad + bw * i + bw / 2).toFixed(1)},${y(v).toFixed(1)}`)).filter(Boolean);
+  const avg = mean(steps.filter((v) => v != null));
+  return `<div class="mt-4">
+    <p class="text-sm font-semibold">Steps and weight trend · 4 weeks</p>
+    <p class="text-xs muted">Bars = steps (avg ${fmtKg(avg)}/day) · line = weight trend${tv.length ? ` (${fmt(round1(tv[0]))} → ${fmt(round1(tv[tv.length - 1]))} kg)` : ''}</p>
+    <svg viewBox="0 0 ${W} ${H}" class="mt-2 w-full" role="img" aria-label="Steps per day with weight trend">
+      ${steps.map((v, i) => (v == null ? '' : `<rect x="${(pad + bw * i + 1).toFixed(1)}" y="${(H - 4 - (v / maxS) * (H - 24)).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${((v / maxS) * (H - 24)).toFixed(1)}" rx="2" class="fill-slate-300 dark:fill-slate-700"><title>${fmtShort(days[i])}: ${fmtKg(v)} steps</title></rect>`)).join('')}
+      ${pts.length > 1 ? `<polyline points="${pts.join(' ')}" fill="none" class="stroke-indigo-500" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>` : ''}
+    </svg>
+  </div>`;
+}
+
+/** Weekly averages for the recap and check-ins. */
+function garminAverages(start, end) {
+  if (!garminKey() && !Object.keys(state.garmin.days).length) return null;
+  const ds = Object.keys(state.garmin.days).filter((d) => d >= start && d <= end);
+  if (!ds.length) return null;
+  const avgOf = (k) => mean(ds.map((d) => gDay(d)[k]).filter((v) => typeof v === 'number'));
+  return { sleep: avgOf('sleepH'), steps: avgOf('steps'), rhr: avgOf('rhr'), hrv: avgOf('hrv') };
+}
+const garminAvgText = (a) => [a.sleep && `sleep ${fmt(round1(a.sleep))} h`, a.steps && `${fmtKg(a.steps)} steps`, a.rhr && `resting HR ${Math.round(a.rhr)}`, a.hrv && `HRV ${Math.round(a.hrv)}`].filter(Boolean).join(' · ');
+
+// ----- Garmin settings (modal) -----
+function garminModal() {
+  const key = garminKey(), g = state.garmin;
+  const log = (g.log || []).map((l) => `${l.status} ${l.path}${l.body ? ` → ${l.body}` : ''}`).join('\n');
+  return `${modalHead('Garmin')}
+    ${key ? `<div class="space-y-3">
+      <p class="rounded-xl bg-emerald-500/10 p-3 text-sm">Key saved on this phone (ends …${esc(key.slice(-4))}). ${g.lastSync ? `Last sync ${new Date(g.lastSync).toLocaleString('en-GB')}.` : 'Not synced yet.'} ${Object.keys(g.days).length} days stored.</p>
+      ${g.error ? `<p class="rounded-xl bg-rose-500/10 p-3 text-sm">${esc(g.error.msg)}${g.error.kind === 'blocked' ? ' This means Garmin doesn’t allow web apps to connect directly. Tell Claude: the fallback is a free daily GitHub job that fetches it for you.' : g.error.kind === 'badkey' ? ' Make a new key on Garmin Connect (Settings → Personal API Key) and paste it below.' : ''}</p>` : ''}
+      <button class="btn-primary w-full" data-action="garmin-sync" ${garminBusy ? 'disabled' : ''}>${garminBusy ? 'Syncing…' : 'Sync now'}</button>
+      <details class="rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60"><summary class="cursor-pointer font-semibold">Show details (for troubleshooting)</summary>
+        <p class="mt-2 text-xs muted">What Garmin replied on the last sync. Safe to screenshot: it never shows your key.</p>
+        <pre class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-all text-[11px]">${esc(log) || 'Nothing yet.'}</pre></details>
+      <div class="flex items-center justify-between"><button class="link" data-action="garmin-replace">Replace key</button><button class="link text-rose-600 dark:text-rose-400" data-action="garmin-remove">Disconnect</button></div>
+    </div>` : `<form id="garmin-form" class="space-y-3">
+      <ol class="list-decimal space-y-1 pl-5 text-sm">
+        <li>On Garmin Connect (web), go to <b>Settings → Personal API Key</b> and tap <b>Create Key</b>. Pick the longest expiry.</li>
+        <li>Copy the key (it’s only shown once; keep a copy in the Passwords app).</li>
+        <li>Paste it here.</li>
+      </ol>
+      <label class="block"><span class="label">Garmin Personal API key</span><input id="garmin-key" class="input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="Paste your key"></label>
+      <p class="text-xs muted">Saved only on this phone. It isn’t in the app’s code or your backup files, and only reads your data. A new phone or a reinstall needs the key pasted again.</p>
+      <button type="submit" class="btn-primary w-full">Save and connect</button>
+    </form>`}`;
+}
+
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'garmin-form') return;
+  e.preventDefault();
+  const key = document.getElementById('garmin-key').value.trim().replace(/^ApiKey\s+/i, '');
+  if (!key) return;
+  lsSet(GARMIN_KEY, key); lsSet(GARMIN_TOKEN, null);
+  state.garmin.error = null; state.garmin.lastSync = null;
+  renderModal();
+  garminSync(true);
+});
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-action^="garmin-"]');
+  if (!b) return;
+  switch (b.dataset.action) {
+    case 'garmin-settings': modal = { type: 'garmin' }; renderModal(); return;
+    case 'garmin-sync': garminSync(true); render(); return;
+    case 'garmin-replace': lsSet(GARMIN_KEY, null); lsSet(GARMIN_TOKEN, null); renderModal(); return;
+    case 'garmin-remove':
+      if (!confirm('Disconnect Garmin? The key is removed from this phone. Numbers already synced stay in your stats.')) return;
+      lsSet(GARMIN_KEY, null); lsSet(GARMIN_TOKEN, null); state.garmin.error = null; saveState(); modal = null; render(); return;
+  }
+});
+
 // ----- Stats tab -----
 /** Food for a finished day: calories and protein each rated good / close / low (null = nothing logged). */
 function foodDayRating(date) {
@@ -2632,7 +2930,7 @@ function weekStreak() {
 
 function statsView() {
   if (!state.history.length) {
-    return `<h2 class="mb-4 text-3xl">Stats</h2>` + journeyCard() + monthCard() + nutritionCard() + measuresCard() +
+    return `<h2 class="mb-4 text-3xl">Stats</h2>` + journeyCard() + monthCard() + garminCard() + nutritionCard() + measuresCard() +
       emptyState('No workouts yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
   }
   const thisWeek = weekStart(todayISO());
@@ -2657,6 +2955,7 @@ function statsView() {
   </section>`;
   html += journeyCard();
   html += monthCard();
+  html += garminCard();
   html += recapHtml(statsWeek, false) || '';
   html += nutritionCard();
 
@@ -3123,6 +3422,10 @@ function historyView() {
 
   html += `<section class="card mt-6 space-y-3">
     <h3 class="font-semibold">Settings</h3>
+    <button class="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-100 px-3 py-3 text-left dark:bg-slate-800/60" data-action="garmin-settings">
+      <span><span class="block font-medium">Garmin</span><span class="block text-xs muted">${garminKey() ? `Connected${state.garmin.lastSync ? ` · synced ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}` : 'Sleep, HRV, resting HR, Body Battery, steps'}</span></span>
+      <span class="link">${garminKey() ? 'Manage' : 'Connect'}</span>
+    </button>
     <label class="grid grid-cols-[1fr_7rem] items-center gap-3">
       <span><span class="block font-medium">Barbell weight</span><span class="text-xs muted">Used by the plate calculator</span></span>
       <select class="input py-2" data-action="bar-weight">
@@ -3150,7 +3453,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, garmin: garminModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
@@ -5502,10 +5805,11 @@ document.addEventListener('click', async (e) => {
   try { await fetch(location.pathname, { cache: 'reload' }); } catch (err) { /* reload anyway */ }
   location.reload();
 });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { checkForUpdate(); garminAutoSync(); } });
 
 render();
 checkForUpdate();
+garminAutoSync();
 navigator.storage?.persist?.().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

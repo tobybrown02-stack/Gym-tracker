@@ -29,8 +29,8 @@ before changing anything.
   doesn't love training legs (legs are already their best body part).
 - Wearables owned: Garmin Instinct 3 (recommended as the everyday device: free,
   long battery, sleep/HRV/readiness/steps), Apple Watch S10, Fitbit, and a
-  Whoop whose subscription ends March 2027 (advised not to renew). None can
-  sync with the app (needs a server). Advised to ignore wearable calorie-burn
+  Whoop whose subscription ends March 2027 (advised not to renew). Garmin
+  syncs into the app via the Personal API (see Garmin section). Advised to ignore wearable calorie-burn
   figures and not eat back exercise calories; the weekly check-in uses the
   real weight trend.
 - Lost ~30 kg overall (26 kg in 2026, mostly a big cut). Oct 2026: ~103.9 kg,
@@ -318,6 +318,37 @@ small hand-made list of common basics with portions (approximate values).
 weekly reminder, restore prompt in a fresh Home Screen app (Home Screen apps
 on iOS have separate storage from Safari), storage meter (~5 MB Safari limit).
 
+## Garmin (Personal API, Oct 2026)
+
+Garmin opened a **Personal API key** to individuals (~21 Oct 2026; created at
+connect.garmin.com/app/settings/personalApiToken, shown once, user picks the
+expiry). Token: `POST https://personal.connectapi.garmin.com/personalapitoken-service/personal-api/personal-api-key/token`
+with `Authorization: ApiKey <key>` → access token valid 24 h. Data calls use
+`Authorization: Bearer <token>` on the same host. Paths used (from a public
+client library; query names are best guesses, parsers dig for known fields):
+`/usersummary-service/usersummary/daily?calendarDate=` (steps, resting HR,
+stress, Body Battery), `/sleep-service/sleep/dailySleep?date=`,
+`/hrv-service/hrv/daily/{start}/{end}`. Range limits ~28–32 days (HRV 367).
+**The key is never in the code, chat or backups**: pasted in History →
+Settings → Garmin, stored in `localStorage['pot.garminKey']` (token in
+`pot.garminToken`); synced numbers in `state.garmin.days[date] = {sleepH,
+sleepScore, hrv, hrvLo, hrvHi, hrvStatus, rhr, bb, stress, steps}` (kept ~1 year).
+Sync: on open/visible at most every 3 h (`garminAutoSync`), first sync backfills
+14 days, "Sync now"; doesn't re-render while typing. `state.garmin.log` keeps the
+last sync's statuses + reply starts for troubleshooting ("Show details",
+never the key). **Untested against the real API from the sandbox** (proxy
+blocks Garmin): if the phone gets `blocked` (no CORS for web apps), fall back
+to a GitHub Actions job with the key as a repo secret that fetches daily and
+commits the data **encrypted** with a passphrase (the repo is public).
+Owner wears the Instinct 3 to bed; no Garmin scale (weight stays in the app).
+Features: Workout-tab readiness card (`readiness()`: flags = sleep < 6 h or
+>1.25 h under 7-day avg, HRV under Garmin's baseline or 0.9 × 28-day median,
+resting HR ≥ +5 vs 28-day median, Body Battery < 30; 0 → Ready, 1 → Okay,
+2+ → Take it easier; advice only, never changes targets); Stats "Garmin
+recovery" card (6 tiles + 4-week steps bars with weight-trend line); weekly
+recap "Garmin avg" line; programme check-in review shows 4-week averages vs
+the block before.
+
 ## Ideas not done yet
 
 Offered to the owner and not chosen (yet):
@@ -331,8 +362,7 @@ Offered to the owner and not chosen (yet):
 - CSV export of workouts and food.
 
 Not possible or advised against:
-- Wearable (Garmin/Fitbit) dashboard, Apple Health sync — need a server or
-  paid developer account; parked by the owner.
+- Apple Health sync: needs a native app. (Garmin is done via the Personal API.)
 - Push notifications — need a server; not possible for free here.
 - Progress photos stored in the app — would blow the ~5 MB storage and
   backups; the owner keeps them in the Photos app.
