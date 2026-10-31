@@ -57,6 +57,9 @@ before changing anything.
 - Never put a literal closing script tag inside the main script (it ends the
   script block); the update check builds it from split strings.
 - Update this file in the same commit as any feature change.
+- `TRAINING-PROFILE.md` is a short, non-technical version (no app internals) the
+  owner uploads to a normal Claude training project. Update it too when the
+  split, programme dates, food targets or training rules change.
 
 ## Testing
 
