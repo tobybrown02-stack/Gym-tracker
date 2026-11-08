@@ -323,6 +323,11 @@ weight). **Protein ideas** card on the Food tab (today, when ≥15 g protein
 and ≥100 kcal left): foods eaten in the last 4 weeks (as usually logged),
 favourites and saved meals that fit the calories left, sorted by protein per
 kcal; one tap adds them to the meal for the time of day.
+**Nutrient breakdown** (Nov 2026, owner asked): tapping the kcal ring, a
+macro bar or a small tile (fibre, sugars, saturates, salt) on the Food summary
+opens `breakdownModal()`: that day's foods ranked by how much of the nutrient
+they gave (`nutrientBreakdown()`, same food grouped across meals), with % of
+the day's total, meals and grams; tabs switch nutrient.
 **Trend only** (`prefs.trendOnly`, toggle on the Food weight card): after
 logging, the day's reading is hidden everywhere (card, history list, chart
 dots via `weightChart(pts, hide)`); only the trend is shown.
