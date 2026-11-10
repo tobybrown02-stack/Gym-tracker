@@ -144,6 +144,13 @@ screen (no tab).
   bodyweight "add weight" 2.5 kg, "reps only" no step, "assisted" machine 3/4 kg
   with assistance going *down*. Use `harder(ex,a,b)` / `loadLabel(ex,w)` for
   anything load-related. `floorToStep()` for rounding down.
+- Assisted machines (Nov 2026): the owner's own "Assisted Pull up" was saved as
+  a normal machine, so 60–70 kg warm-ups looked like the best sets (they work
+  at 40–45 kg). `fixAssisted()` in `migrate()` turns any exercise with
+  "assist" in its name into bodyweight + `bwMode: 'assisted'` (history kept;
+  lowest load = working sets, less assistance = progress). Assisted
+  exercises now get warm-ups too (`warmupsFor`: ~1.5× and ~1.25× the working
+  assistance, shown as "kg assist").
 - Plateau: 3 sessions in a row without progress (heavier, more reps at the same
   load, or in RPE mode an RPE-e1RM gain >0.5%) → offer ~10% deload (more
   assistance for assisted). Logged deloads reset the count.

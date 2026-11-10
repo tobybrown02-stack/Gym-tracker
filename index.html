@@ -679,6 +679,14 @@ function platesFor(total) {
 /** Ramp-up sets before the working weight. */
 function warmupsFor(ex, work) {
   const out = [];
+  if (isAssisted(ex)) {
+    // More help first, then down towards the working assistance.
+    for (const [mult, reps] of [[1.5, 8], [1.25, 5]]) {
+      const w = roundToStep(Math.max(work * mult, work + stepFor(ex) * (mult > 1.3 ? 2 : 1)), ex);
+      if (w > work && !out.some((o) => o.weight === w)) out.push({ weight: w, reps });
+    }
+    return out;
+  }
   if (!(work > 0) || isBW(ex)) return out;
   const bar = state.settings.barWeight;
   if (ex.type === 'barbell' && work > bar) out.push({ weight: bar, reps: 10 });
@@ -722,9 +730,21 @@ const emptyFood = () => ({
 });
 
 /** Accepts saved data from any version of the app and fills in new fields. */
+/**
+ * An exercise named "assisted …" saved as a normal machine counts its highest
+ * weight as the best set, but on an assisted machine less weight is harder.
+ * Switch it to the assisted kind (history stays; only the meaning changes).
+ */
+function fixAssisted(e) {
+  if (/assist/i.test(e.name || '') && !(e.type === 'bodyweight' && e.bwMode !== 'weighted')) {
+    return { ...e, type: 'bodyweight', bwMode: 'assisted', machineStep: e.machineStep === 3 ? 3 : 4 };
+  }
+  return e;
+}
+
 function migrate(d) {
   return {
-    exercises: (d.exercises || []).map((e) => ({ muscles: {}, rest: 90, machineStep: 4, bwMode: 'weighted', ...e })),
+    exercises: (d.exercises || []).map((e) => fixAssisted({ muscles: {}, rest: 90, machineStep: 4, bwMode: 'weighted', ...e })),
     history: d.history || [],
     routines: (d.routines || []).map((r) => ({ sets: {}, ...r })),
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
@@ -1122,10 +1142,10 @@ function lastLine(p, ex) {
 function warmupHtml(entry, ex, p, stall) {
   if (!entry.showWarmup) return '';
   const typed = entry.sets.map((s) => parseFloat(s.weight)).filter((w) => w > 0);
-  const workWeight = typed.length ? round2(Math.max(...typed)) : entry.deload && stall ? stall.weight : p.weight;
+  const workWeight = typed.length ? round2(isAssisted(ex) ? Math.min(...typed) : Math.max(...typed)) : entry.deload && stall ? stall.weight : p.weight;
   const warm = warmupsFor(ex, workWeight);
   return `<div class="mt-2 space-y-1 rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-800/60">
-      ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${fmt(w.weight)} kg × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
+      ${warm.length ? warm.map((w, k) => `<div class="flex justify-between gap-3"><span><span class="muted">Warm-up ${k + 1}:</span> <b class="tabular-nums">${isAssisted(ex) ? loadLabel(ex, w.weight) : `${fmt(w.weight)} kg`} × ${w.reps}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs muted">${platesFor(w.weight).text}</span>` : ''}</div>`).join('')
         : '<p class="muted">Light enough to skip warm-ups. Do a few easy reps first.</p>'}
       <div class="flex justify-between gap-3 border-t border-slate-200 pt-1 dark:border-slate-700"><span><span class="muted">Working:</span> <b class="tabular-nums">${loadLabel(ex, workWeight)}</b></span>${ex.type === 'barbell' ? `<span class="text-right text-xs font-semibold">Per side: ${platesFor(workWeight).text}</span>` : ''}</div>
       ${ex.type === 'barbell' ? `<p class="text-xs muted">Plates per side, ${fmt(state.settings.barWeight)} kg bar. <button class="link text-xs" data-action="open-plates" data-total="${workWeight}">Open plate calculator</button></p>` : ''}
@@ -1185,7 +1205,7 @@ function entryCard(entry, i) {
     ${stallHtml}
     ${canTest(ex) ? `<button class="link mt-3 block" data-action="toggle-test" data-e="${i}">${entry.test ? '↩ Back to deload sets' : '🎯 Test a rep max instead (optional)'}</button>` : ''}
 
-    ${isBW(ex) ? '' : `<button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>`}
+    ${isBW(ex) && !isAssisted(ex) ? '' : `<button class="link mt-3" data-action="toggle-warmup" data-e="${i}">${entry.showWarmup ? '▾' : '▸'} Warm-up${ex.type === 'barbell' ? ' & plates' : ' sets'}</button>`}
     <div id="warm-${i}">${warmupHtml(entry, ex, p, stall)}</div>
 
     <div class="mt-3 grid grid-cols-[1.75rem_1fr_1fr_3.25rem_2.75rem_2rem] gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide muted">
