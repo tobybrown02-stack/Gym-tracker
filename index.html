@@ -5877,6 +5877,14 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { checkForUpdate(); garminAutoSync(); } });
 
 render();
+// Opening the app loads the newest version straight away (the service worker
+// fetches the page network-first), so the banner only appears if the app was
+// already open. Say so when the version has changed since last time.
+try {
+  const seen = localStorage.getItem('pot.ver'), now = appVersion();
+  if (seen && seen !== now && SELF_CODE) setTimeout(() => toast(`App updated · version ${now}`), 600);
+  localStorage.setItem('pot.ver', now);
+} catch (err) { /* storage blocked */ }
 checkForUpdate();
 garminAutoSync();
 navigator.storage?.persist?.().catch(() => {});

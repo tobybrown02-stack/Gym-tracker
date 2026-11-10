@@ -51,6 +51,11 @@ before changing anything.
   renamed from gym-tracker to Gym-tracker).
 - After a push the app shows an "update available" banner (it compares its own
   script text with a fresh copy), so phones pick up changes with one tap.
+- Opening the app usually loads the new version directly (`sw.js` fetches the
+  page network-first), so there's often no banner: the owner twice reported
+  "no banner" when the phone was already updated. A toast "App updated ·
+  version xxxxxx" now shows once when the version changes (`pot.ver` in
+  localStorage).
 - Settings shows "Version xxxxxx" (`appVersion()`, a hash of the script text), so
   the owner can confirm which version the phone runs; compute the expected value
   after a push to compare.
