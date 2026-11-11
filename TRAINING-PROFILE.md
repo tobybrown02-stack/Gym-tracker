@@ -1,7 +1,7 @@
 # Training profile
 
 A summary of my training, food and recovery set-up, for chats about training.
-Last updated 31 Oct 2026. My logged workouts and food are on my phone and
+Last updated 11 Nov 2026. My logged workouts and food are on my phone and
 aren't in this file; I'll share screenshots or numbers when they're needed.
 
 ## About me
@@ -109,12 +109,10 @@ block, weeks 1–3 build and week 4 is a deload.
   tracks sleep (with stages), resting HR, Body Battery, stress, steps and gym
   sessions. HRV has been tracking only since late Oct 2026, so its baseline
   needs ~3 weeks. Training Readiness isn't available through the personal API.
-- My app's readiness check flags any of these:
-  - sleep under 6 h, or more than 1.25 h under my 7-day average
-  - HRV low
-  - resting HR at least 5 above normal
-  - Body Battery under 30
-- With no flags it says "Ready", one flag "Okay", and two or more "Take it
+- My app gives a daily **readiness score out of 100** from last night against
+  my own normal: sleep length and Garmin's sleep score, sleep vs my 7-day
+  average, resting HR vs my 4-week normal, Body Battery, and HRV once Garmin
+  has learned it. 75+ "good to train", 60–74 "okay", under 60 "take it
   easier". It's advice only.
 - I also own an Apple Watch S10, a Fitbit and a Whoop. The Whoop
   subscription ends Mar 2027 and I've been advised not to renew.

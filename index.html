@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#141210">
+  <meta name="theme-color" content="#0c0f17">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Overload">
@@ -12,43 +12,57 @@
   <link rel="icon" href="icons/icon-192.png">
   <title>Overload Tracker</title>
   <script>
-    // Apply the saved theme before first paint (dark by default).
-    try {
-      if (localStorage.getItem('pot.theme') === 'light') document.documentElement.classList.remove('dark');
-    } catch (e) {}
+    // Light or dark before first paint: follows the iPhone setting unless one was picked
+    // (pot.theme = 'light' | 'dark'; missing = automatic).
+    (function () {
+      var pick = null;
+      try { pick = localStorage.getItem('pot.theme'); } catch (e) {}
+      var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+      window.applyTheme = function () {
+        var p = null; try { p = localStorage.getItem('pot.theme'); } catch (e) {}
+        var dark = p ? p === 'dark' : mq ? mq.matches : true;
+        document.documentElement.classList.toggle('dark', dark);
+        var m = document.querySelector('meta[name=theme-color]');
+        if (m) m.setAttribute('content', dark ? '#0c0f17' : '#f6f4f0');
+      };
+      window.applyTheme();
+      if (mq && mq.addEventListener) mq.addEventListener('change', window.applyTheme);
+    })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap">
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   <script>
-    // "Plate" look: warm neutrals, bumper-plate red accent, Anton headings over Archivo.
-    // The palette is remapped here so every slate/indigo/emerald/amber class picks it up.
+    // "Calm" look (Nov 2026, the owner's pick "K"): warm off-white by day, deep navy at
+    // night, soft periwinkle accent, calm green for "good", Inter throughout.
+    // The palette is remapped here so every slate/indigo/emerald/amber class picks it up:
+    // light mode uses slate 50–500, dark mode slate 400–950.
     if (window.tailwind) tailwind.config = {
       darkMode: 'class',
       theme: { extend: {
-        fontFamily: { sans: ['Archivo', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'], display: ['Anton', 'Impact', 'Haettenschweiler', 'Arial Narrow', 'sans-serif'] },
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'], display: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'] },
         colors: {
-          white: '#fffdf8',
-          slate: { 50: '#f6f1e7', 100: '#efe8da', 200: '#ddd3c1', 300: '#c9bda8', 400: '#a39a8c', 500: '#857b6c', 600: '#665d50', 700: '#463f36', 800: '#302b25', 900: '#1e1b18', 950: '#141210' },
-          indigo: { 50: '#fdecea', 100: '#fbd5d0', 200: '#f7b0a7', 300: '#f2877a', 400: '#ec5f50', 500: '#e23b2e', 600: '#cf2f22', 700: '#ac2519', 800: '#8a1f15', 900: '#6f1b13', 950: '#3c0b07' },
-          emerald: { 50: '#ecf8ef', 100: '#d2f0da', 200: '#a6e1b5', 300: '#72cd8b', 400: '#47b968', 500: '#2fa84f', 600: '#238a3f', 700: '#1c6e33', 800: '#18572b', 900: '#144825', 950: '#0a2814' },
-          amber: { 50: '#fefae6', 100: '#fdf2bf', 200: '#fbe68a', 300: '#f7d84f', 400: '#f3cb2a', 500: '#f0c419', 600: '#c99d0c', 700: '#9c760d', 800: '#7e5e12', 900: '#694d14', 950: '#3d2b07' },
-          violet: { 50: '#eaf1fd', 100: '#d3e2fb', 200: '#a9c6f6', 300: '#78a6f0', 400: '#4d88e8', 500: '#2f6fe0', 600: '#2459c2', 700: '#1f479b', 800: '#1d3d7e', 900: '#1c3567', 950: '#122143' },
+          white: '#ffffff',
+          slate: { 50: '#f6f4f0', 100: '#eeebe5', 200: '#e3dfd7', 300: '#cdc8be', 400: '#9aa3b8', 500: '#86837c', 600: '#56575c', 700: '#2a3142', 800: '#1d2433', 900: '#151b28', 950: '#0c0f17' },
+          indigo: { 50: '#eef0ff', 100: '#dfe3ff', 200: '#c4cbff', 300: '#a3adfc', 400: '#8592f7', 500: '#6672ee', 600: '#5359dc', 700: '#4447b8', 800: '#393c93', 900: '#313475', 950: '#1d1e45' },
+          emerald: { 50: '#ebf8f1', 100: '#d0efdf', 200: '#a6dfc3', 300: '#8fd9b6', 400: '#5ec597', 500: '#2fa871', 600: '#1e8a5a', 700: '#1a6f4a', 800: '#17583c', 900: '#134832', 950: '#08281b' },
+          amber: { 50: '#fdf6ea', 100: '#faeacb', 200: '#f5d59a', 300: '#f0c27b', 400: '#e9ad52', 500: '#e0a03a', 600: '#c4851f', 700: '#9c6819', 800: '#7d5318', 900: '#664416', 950: '#3a2408' },
+          violet: { 50: '#f3f0fe', 100: '#e7e0fc', 200: '#d2c4fa', 300: '#b99cff', 400: '#a083f0', 500: '#8a6ee0', 600: '#7254c7', 700: '#5e44a3', 800: '#4d3a82', 900: '#40336a', 950: '#271d45' },
         },
       } }
     };
   </script>
   <style type="text/tailwindcss">
     @layer components {
-      .card { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+      .card { @apply rounded-3xl border border-black/5 bg-white/80 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.05] dark:shadow-none; }
       .muted { @apply text-slate-500 dark:text-slate-400; }
       .input { @apply w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600; }
       .label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
       .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold transition active:scale-[0.98] disabled:opacity-50; }
-      .btn-primary { @apply btn bg-indigo-600 text-white hover:bg-indigo-500; }
+      .btn-primary { @apply btn rounded-full bg-slate-950 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white; }
       .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-500; }
-      .btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+      .btn-ghost { @apply btn bg-black/[0.05] text-slate-700 hover:bg-black/10 dark:bg-white/[0.07] dark:text-slate-200 dark:hover:bg-white/10; }
       .btn-danger { @apply btn bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400; }
       .icon-btn { @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 active:scale-95 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800; }
       .link { @apply text-sm font-semibold text-indigo-600 dark:text-indigo-400; }
@@ -63,29 +77,35 @@
       .check { @apply inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 text-lg font-bold text-slate-400 transition active:scale-95 dark:border-slate-700 dark:text-slate-500; }
       .set-row.done .check { @apply border-emerald-500 bg-emerald-500 text-white; }
       .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
-      .nav-btn { @apply flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-semibold text-slate-500 transition dark:text-slate-400; }
-      .nav-btn.active { @apply text-indigo-600 dark:text-indigo-400; }
-      .tile { @apply rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900; }
-      .display { @apply font-display font-normal uppercase tracking-wide; }
-      .eyebrow { @apply text-xs font-bold uppercase tracking-[0.14em] text-indigo-600 dark:text-indigo-400; }
+      .nav-btn { @apply flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-medium text-slate-500 transition dark:text-slate-400; }
+      .nav-btn.active { @apply text-slate-950 dark:text-white; }
+      .tile { @apply rounded-3xl border border-black/5 bg-white/80 p-3 dark:border-white/[0.08] dark:bg-white/[0.05]; }
+      .display { @apply font-light tracking-tight; }
+      .eyebrow { @apply text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400; }
+      .tap { @apply cursor-pointer transition active:scale-[0.985]; }
     }
     @layer base {
-      h1, h2 { @apply font-display font-normal uppercase tracking-wide; }
+      h1, h2 { @apply font-semibold tracking-tight; }
     }
+    /* Soft aurora glow behind the top of every screen */
+    .aurora { position: fixed; inset: -120px -80px auto; height: 520px; z-index: -1; pointer-events: none; filter: blur(12px);
+      background: radial-gradient(38% 38% at 28% 40%, rgba(84,214,174,.30), transparent 70%), radial-gradient(38% 40% at 74% 32%, rgba(150,140,255,.28), transparent 70%); }
+    .dark .aurora { background: radial-gradient(38% 38% at 28% 40%, rgba(84,214,174,.20), transparent 70%), radial-gradient(40% 40% at 72% 30%, rgba(122,140,255,.26), transparent 70%), radial-gradient(70% 60% at 50% 0%, rgba(35,50,74,.9), transparent 70%); }
     input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
-  <header class="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+  <div class="aurora" aria-hidden="true"></div>
+  <header class="sticky top-0 z-20 border-b border-black/5 bg-slate-50/70 backdrop-blur-xl dark:border-white/5 dark:bg-slate-950/60">
     <div class="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
       <div class="flex items-center gap-2">
-        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white ring-4 ring-indigo-600/20">
+        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-300 to-indigo-400 text-slate-950">
           <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>
         </div>
         <div>
-          <h1 class="text-2xl leading-none">Overload<span class="text-indigo-500">.</span></h1>
-          <p class="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] muted leading-tight" id="hdr-sub">Train with a plan</p>
+          <h1 class="text-lg font-semibold leading-none tracking-tight">Overload</h1>
+          <p class="mt-1 text-[11px] font-medium leading-tight muted" id="hdr-sub">Train with a plan</p>
         </div>
       </div>
       <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle light/dark mode">
@@ -96,25 +116,28 @@
 
   <main id="view" class="mx-auto max-w-xl px-4 pb-48 pt-4"></main>
 
-  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95" style="padding-bottom: env(safe-area-inset-bottom)">
+  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-black/5 bg-slate-50/85 backdrop-blur-xl dark:border-white/5 dark:bg-slate-950/80" style="padding-bottom: env(safe-area-inset-bottom)">
     <!-- Rest timer (shown while resting) -->
     <div id="rest-timer" class="mx-auto hidden max-w-xl px-4 pt-3">
-      <div class="flex items-center gap-2 rounded-2xl bg-indigo-600 px-3 py-2 text-white">
+      <div class="flex items-center gap-2 rounded-2xl bg-slate-950 px-3 py-2 text-white dark:bg-slate-100 dark:text-slate-950">
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-2">
             <span class="truncate text-xs font-semibold uppercase tracking-wide opacity-80" id="rest-label">Rest</span>
             <span class="text-2xl font-extrabold tabular-nums" id="rest-time">0:00</span>
           </div>
-          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-white/25"><div id="rest-bar" class="h-full rounded-full bg-white transition-[width] duration-200"></div></div>
+          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-white/25 dark:bg-black/15"><div id="rest-bar" class="h-full rounded-full bg-emerald-400 transition-[width] duration-200"></div></div>
         </div>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="-15">−15</button>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="15">+15</button>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold" data-action="rest-skip">Skip</button>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-adjust" data-sec="-15">−15</button>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-adjust" data-sec="15">+15</button>
+        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-skip">Skip</button>
       </div>
     </div>
     <div class="mx-auto flex max-w-xl">
+      <button class="nav-btn" data-action="nav" data-view="home">
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v4.5l3 2"/></svg>Today
+      </button>
       <button class="nav-btn" data-action="nav" data-view="today">
-        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Workout
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>Train
       </button>
       <button class="nav-btn" data-action="nav" data-view="food">
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a2 2 0 0 0 2 2v9M4 3v5M8 3v5M18 21V3c-2 1.5-3 4-3 7 0 1.5 1 2.5 3 2.5"/></svg>Food
@@ -129,16 +152,16 @@
         <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Exercises
       </button>
       <button class="nav-btn" data-action="nav" data-view="history">
-        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History
+        <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>History
       </button>
     </div>
   </nav>
 
-  <div id="modal" class="fixed inset-0 z-40 hidden items-end justify-center bg-black/50 sm:items-center sm:p-4">
-    <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
+  <div id="modal" class="fixed inset-0 z-40 hidden items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center sm:p-4">
+    <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-[28px] bg-slate-50 p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
   </div>
 
-  <button id="update-banner" class="fixed inset-x-0 top-16 z-50 mx-auto hidden w-[calc(100%-2rem)] max-w-md rounded-xl bg-indigo-600 px-4 py-3 text-left text-sm font-semibold text-white shadow-lg" data-action="apply-update">
+  <button id="update-banner" class="fixed inset-x-0 top-16 z-50 mx-auto hidden w-[calc(100%-2rem)] max-w-md rounded-2xl bg-slate-950 px-4 py-3 dark:bg-slate-100 dark:text-slate-950 text-left text-sm font-semibold text-white shadow-lg" data-action="apply-update">
     A new version of the app is ready. <span class="underline">Tap to update</span>
   </button>
 
@@ -773,7 +796,7 @@ function saveState() {
 }
 
 let state = loadState();
-let view = 'today';
+let view = 'home';
 let editingId = null;      // exercise being edited
 let routineEdit = null;    // { id, name, exerciseIds } while editing a routine
 let modal = null;          // { type: 'day' | 'summary', ... }
@@ -930,8 +953,8 @@ function render() {
   const pw = state.programme && progWeek(todayISO());
   document.getElementById('hdr-sub').textContent = pw ? `Week ${pw} of ${PROG_WEEKS} · ${pw % 4 ? BLOCKS[blockOf(pw)].name : 'Deload'}` : 'Train with a plan';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const views = { today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView, builder: builderView };
-  document.getElementById('view').innerHTML = (view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
+  const views = { home: homeView, today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView, builder: builderView };
+  document.getElementById('view').innerHTML = (view === 'home' || view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
   if (view === 'exercises') syncMachineToggle();
   if (view === 'stats') { attachCharts(); attachWeightChart(); }
   renderModal();
@@ -2677,24 +2700,27 @@ function readiness(date = todayISO()) {
   if (t.rhr != null && rhrBase) { if (t.rhr >= rhrBase + 5) flags.push(`resting HR up ${Math.round(t.rhr - rhrBase)}`); else good.push('resting HR normal'); }
   if (t.bb != null && t.bb < 30) flags.push(`Body Battery ${Math.round(t.bb)}`);
   // Garmin's own Training Readiness wins when the watch has one; the app's checks become the reasons.
-  const level = t.tr != null ? (t.tr >= 50 ? 'good' : t.tr >= 25 ? 'mid' : 'low') : flags.length >= 2 ? 'low' : flags.length === 1 ? 'mid' : 'good';
+  // Garmin's own Training Readiness wins when present; otherwise the app's 0–100 score
+  // (readinessScore), falling back to counting flags.
+  const sc = t.tr == null ? readinessScore(date) : null;
+  const level = t.tr != null ? (t.tr >= 50 ? 'good' : t.tr >= 25 ? 'mid' : 'low') : sc ? scoreLevel(sc.score) : flags.length >= 2 ? 'low' : flags.length === 1 ? 'mid' : 'good';
   const advice = {
     good: 'Recovered. Train as planned.',
     mid: 'A bit under. Train as planned, but don’t push the last set past RPE 8–9.',
     low: 'Low recovery. Take today easier: stop sets at RPE 7–8, or drop the last set of each exercise. Food and sleep matter more than one session.',
   }[level];
-  return { level, flags, good, advice, t, rhrBase, hrvBase, sleepAvg };
+  return { level, flags, good, advice, t, rhrBase, hrvBase, sleepAvg, score: sc?.score ?? null };
 }
 
 function readinessHtml(date) {
   if (!garminOn()) return '';
   const r = readiness(date);
   if (!r) return '';
-  const tone = { good: ['bg-emerald-500', 'text-emerald-700 dark:text-emerald-400', 'Ready'], mid: ['bg-amber-500', 'text-amber-700 dark:text-amber-300', 'Okay'], low: ['bg-rose-500', 'text-rose-600 dark:text-rose-400', 'Take it easier'] }[r.level];
+  const tone = { good: ['bg-emerald-500', 'text-emerald-700 dark:text-emerald-300', 'Good to train'], mid: ['bg-amber-500', 'text-amber-700 dark:text-amber-300', 'Okay to train'], low: ['bg-rose-500', 'text-rose-600 dark:text-rose-400', 'Take it easier'] }[r.level];
   return `<section class="card relative mb-4 overflow-hidden pl-7">
     <span class="absolute bottom-4 left-0 top-4 w-2.5 rounded-r-full ${tone[0]}" aria-hidden="true"></span>
-    <div class="flex items-center justify-between gap-2"><p class="eyebrow">Garmin · readiness</p><button class="link text-xs" data-action="nav" data-view="stats">Details</button></div>
-    <div class="mt-1 flex items-end justify-between gap-3"><p class="display text-2xl leading-none ${tone[1]}">${tone[2]}</p>${r.t.tr != null ? `<p class="text-right leading-none"><span class="display text-3xl tabular-nums">${Math.round(r.t.tr)}</span><span class="block text-[10px] font-bold uppercase tracking-wider muted">Garmin · ${esc(r.t.trLevel ? r.t.trLevel.charAt(0) + r.t.trLevel.slice(1).toLowerCase() : TR_LEVEL(r.t.tr))}</span></p>` : ''}</div>
+    <div class="flex items-center justify-between gap-2"><p class="eyebrow">Garmin · readiness</p><button class="link text-xs" data-action="metric" data-k="readiness">Details</button></div>
+    <div class="mt-1 flex items-end justify-between gap-3"><p class="display text-2xl leading-none ${tone[1]}">${tone[2]}</p>${r.score != null ? `<p class="text-right leading-none"><span class="text-3xl font-light tabular-nums">${r.score}</span><span class="block text-[10px] font-medium uppercase tracking-wider muted">out of 100</span></p>` : ''}${r.t.tr != null ? `<p class="text-right leading-none"><span class="display text-3xl tabular-nums">${Math.round(r.t.tr)}</span><span class="block text-[10px] font-bold uppercase tracking-wider muted">Garmin · ${esc(r.t.trLevel ? r.t.trLevel.charAt(0) + r.t.trLevel.slice(1).toLowerCase() : TR_LEVEL(r.t.tr))}</span></p>` : ''}</div>
     <p class="mt-1 text-sm">${r.advice}</p>
     <p class="mt-1 text-xs muted">${[...r.flags, ...r.good].map(esc).join(' · ')}</p>
     ${r.t.trNote ? `<p class="mt-1 text-xs muted">Garmin: ${esc(String(r.t.trNote).replace(/_/g, ' ').toLowerCase())}</p>` : ''}
@@ -2741,7 +2767,7 @@ function garminCard() {
     ${sleepStagesHtml(t)}
     ${gymSessionsHtml()}
     ${stepsWeightChart()}
-    <p class="mt-3 text-[11px] leading-relaxed muted">Readiness compares today with your own normal: short sleep (under 6 h), HRV below your usual range, resting heart rate 5+ above your 4-week normal, or Body Battery under 30. Two or more means take it easier. When your watch gives a Training Readiness score, that decides the verdict (50+ ready, 25–49 okay, under 25 take it easier) and these checks show the reasons. It never changes your targets.</p>
+    <p class="mt-3 text-[11px] leading-relaxed muted">Readiness (0–100, on the Today tab) compares last night with your own normal: sleep length and Garmin’s sleep score, sleep against your 7-day average, resting heart rate against your 4-week normal, Body Battery, and HRV once Garmin has learned it. 75+ good to train, 60–74 okay, under 60 take it easier. It never changes your targets. <button class="link text-[11px]" data-action="metric" data-k="readiness">See today’s breakdown</button></p>
   </section>`;
   return html;
 }
@@ -2805,6 +2831,289 @@ function garminAverages(start, end) {
   return { sleep: avgOf('sleepH'), steps: avgOf('steps'), rhr: avgOf('rhr'), hrv: avgOf('hrv') };
 }
 const garminAvgText = (a) => [a.sleep && `sleep ${fmt(round1(a.sleep))} h`, a.steps && `${fmtKg(a.steps)} steps`, a.rhr && `resting HR ${Math.round(a.rhr)}`, a.hrv && `HRV ${Math.round(a.hrv)}`].filter(Boolean).join(' · ');
+
+// ----- Readiness score (0–100) -----
+/**
+ * One number for "how recovered am I", from last night against your own normal.
+ * Parts (weight): sleep length, blended with Garmin's sleep score (30); sleep vs your
+ * 7-day average (15); resting HR vs your 4-week median (25); Body Battery (20); HRV vs
+ * your normal once Garmin has learned it (20). Missing parts are left out. Advice only.
+ */
+function readinessScore(date = todayISO()) {
+  const t = gDay(date);
+  if (t.tr != null) return { score: Math.round(t.tr), parts: [], garmin: true, t };
+  const y = addDays(date, -1);
+  const rhrBase = median(gSeries('rhr', y, 28)), hrvBase = median(gSeries('hrv', y, 28)), sleepAvg = mean(gSeries('sleepH', y, 7));
+  const clamp = (v) => Math.max(0, Math.min(100, v));
+  const parts = [];
+  if (t.sleepH != null) {
+    const len = clamp(15 + ((t.sleepH - 4.5) / 3.5) * 85);
+    parts.push({ key: 'sleep', label: 'Sleep', w: 30, v: t.sleepScore != null ? (len + t.sleepScore) / 2 : len, text: fmtMins(t.sleepH * 60) });
+    if (sleepAvg) { const d = t.sleepH - sleepAvg; parts.push({ key: 'sleep', label: 'Sleep vs avg', w: 15, v: clamp(100 + Math.min(0, d) * 40), text: `${d >= 0 ? '+' : '−'}${Math.round(Math.abs(d) * 60)} min` }); }
+  }
+  if (t.rhr != null && rhrBase) parts.push({ key: 'rhr', label: 'Resting HR', w: 25, v: clamp(92 - (t.rhr - rhrBase) * 8.4), text: `${Math.round(t.rhr)} bpm` });
+  if (t.bb != null) parts.push({ key: 'bb', label: 'Body Battery', w: 20, v: clamp(t.bb), text: `${Math.round(t.bb)}` });
+  if (t.hrv != null && (t.hrvLo || hrvBase)) {
+    const ratio = t.hrvLo ? (t.hrv >= t.hrvLo ? 1 : (t.hrv / t.hrvLo) * 0.92) : t.hrv / hrvBase;
+    parts.push({ key: 'hrv', label: 'HRV', w: 20, v: clamp(ratio >= 1 ? 95 : 95 - (1 - ratio) * 225), text: `${Math.round(t.hrv)} ms` });
+  }
+  if (!parts.some((p) => p.key === 'sleep' || p.key === 'rhr')) return null;
+  const score = Math.round(sum(parts.map((p) => p.v * p.w)) / sum(parts.map((p) => p.w)));
+  return { score, parts, rhrBase, hrvBase, sleepAvg, t };
+}
+const scoreLevel = (n) => (n >= 75 ? 'good' : n >= 60 ? 'mid' : 'low');
+const LEVEL_TEXT = { good: 'Good to train', mid: 'Okay to train', low: 'Take it easier' };
+const LEVEL_TONE = { good: 'text-emerald-600 dark:text-emerald-300', mid: 'text-amber-600 dark:text-amber-300', low: 'text-rose-600 dark:text-rose-400' };
+const LEVEL_STROKE = { good: 'text-emerald-600 dark:text-emerald-300', mid: 'text-amber-500 dark:text-amber-300', low: 'text-rose-500 dark:text-rose-400' };
+
+/** The newest day (today or yesterday) that has a readiness score. */
+function latestScoreDay() {
+  for (const d of [todayISO(), addDays(todayISO(), -1)]) { const r = readinessScore(d); if (r) return { date: d, r }; }
+  return null;
+}
+
+/** A plain-English line for the score: the best and worst parts. */
+function readinessWhy(date) {
+  const r = readiness(date);
+  if (!r) return '';
+  const bits = [...r.flags, ...r.good];
+  if (r.t.bb != null && r.t.bb >= 30) bits.push(`Body Battery ${Math.round(r.t.bb)}`);
+  const s = bits.slice(0, 3).join(', ');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) + '.' : '';
+}
+
+// ----- Small SVG pieces for the dashboard -----
+function ringSvg(size, stroke, pct, cls, track = 'text-black/[0.07] dark:text-white/[0.08]') {
+  const r = (size - stroke) / 2, C = 2 * Math.PI * r, p = Math.max(0, Math.min(1, pct || 0));
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="-rotate-90" aria-hidden="true">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="currentColor" stroke-width="${stroke}" class="${track}"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" class="${cls}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p)}"/></svg>`;
+}
+
+/**
+ * Bars for a run of days. vals = [{ d, v }] oldest first (v may be null).
+ * opts: cls (bar colour), avg (dashed line value), fmtV (tooltip), h (height), colourOf(v) for per-bar colour.
+ */
+function dayBars(vals, opts = {}) {
+  const W = 320, H = opts.h || 110, n = vals.length, bw = W / n;
+  const nums = vals.map((x) => x.v).filter((v) => v != null);
+  if (!nums.length) return '<p class="mt-3 text-sm muted">No numbers yet.</p>';
+  const max = Math.max(...nums, opts.avg || 0, opts.min || 0) * 1.05 || 1;
+  const yv = (v) => H - 16 - (v / max) * (H - 24);
+  const bars = vals.map((x, i) => (x.v == null ? '' : `<rect x="${(i * bw + bw * 0.18).toFixed(1)}" y="${yv(x.v).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${(H - 16 - yv(x.v)).toFixed(1)}" rx="${Math.min(4, bw * 0.3).toFixed(1)}" fill="currentColor" class="${opts.colourOf ? opts.colourOf(x.v) : opts.cls || 'text-indigo-500'}" opacity="${i === n - 1 ? 1 : 0.55}"><title>${fmtShort(x.d)}: ${opts.fmtV ? opts.fmtV(x.v) : x.v}</title></rect>`)).join('');
+  const avg = opts.avg != null ? `<line x1="0" x2="${W}" y1="${yv(opts.avg).toFixed(1)}" y2="${yv(opts.avg).toFixed(1)}" stroke="currentColor" stroke-dasharray="4 4" class="text-slate-400" stroke-width="1.2"/>` : '';
+  const lbl = (i, anchor) => `<text x="${anchor === 'end' ? W : 0}" y="${H - 2}" text-anchor="${anchor}" font-size="10" fill="currentColor" class="text-slate-500 dark:text-slate-400">${fmtShort(vals[i].d)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="mt-3 w-full" role="img">${bars}${avg}${lbl(0, 'start')}${lbl(n - 1, 'end')}</svg>`;
+}
+const lastDays = (n, end = todayISO()) => Array.from({ length: n }, (_, i) => addDays(end, i - n + 1));
+const scoreColour = (v) => LEVEL_STROKE[scoreLevel(v)];
+
+// ----- Today dashboard -----
+function homeView() {
+  const today = todayISO(), hour = new Date().getHours();
+  const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  let html = `<section class="mb-2 mt-1"><p class="text-sm muted">${fmtDay(today)}</p><h2 class="mt-1 text-[28px] font-light leading-tight tracking-tight">${hello}</h2></section>`;
+  html += homeReadiness(today);
+  html += homeTraining(today);
+  html += homeFood(today);
+  html += homeStepsWeight(today);
+  if (garminOn() && state.garmin.lastSync) html += `<p class="mt-4 text-center text-[11px] muted">Garmin data from ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · <button class="link text-[11px]" data-action="garmin-sync">Check now</button></p>`;
+  return html;
+}
+
+function homeReadiness(today) {
+  if (!garminOn()) {
+    return `<section class="card mb-3 mt-3 text-center">
+      <p class="eyebrow">Readiness</p>
+      <p class="mt-2 text-sm muted">Connect your Garmin to see a daily readiness score from your sleep, resting heart rate, Body Battery and HRV.</p>
+      <button class="btn-primary mt-3 w-full" data-action="garmin-settings">Connect Garmin</button></section>`;
+  }
+  const got = latestScoreDay();
+  if (!got) return `<section class="card mb-3 mt-3 text-center"><p class="eyebrow">Readiness</p><p class="mt-2 text-sm muted">Waiting for last night’s sleep from Garmin. It syncs about every 2 hours.</p><button class="btn-ghost mt-3" data-action="garmin-sync">Check now</button></section>`;
+  const { date, r } = got, lvl = scoreLevel(r.score);
+  const week = lastDays(7, today).map((d) => ({ d, v: readinessScore(d)?.score ?? null }));
+  const known = week.filter((x) => x.v != null);
+  const t = gDay(date);
+  // "What's driving it": every part, plus HRV while Garmin is still learning it
+  const rows = [...r.parts];
+  if (!rows.some((p) => p.key === 'hrv')) rows.push({ key: 'hrv', label: 'HRV', v: null, text: t.hrv != null ? `${Math.round(t.hrv)} ms` : 'learning' });
+  return `<section class="tap mt-2 text-center" data-action="metric" data-k="readiness">
+      <div class="relative mx-auto h-[210px] w-[210px]">
+        ${ringSvg(210, 12, r.score / 100, LEVEL_STROKE[lvl])}
+        <div class="absolute inset-0 flex flex-col items-center justify-center"><span class="text-[60px] font-light leading-none tracking-tighter tabular-nums">${r.score}</span><span class="eyebrow mt-1.5">Readiness</span></div>
+      </div>
+      <p class="mt-3 text-lg font-medium ${LEVEL_TONE[lvl]}">${LEVEL_TEXT[lvl]}</p>
+      <p class="mx-auto mt-0.5 max-w-xs text-[13px] leading-snug muted">${esc(readinessWhy(date))}${date !== today ? ' (last night’s data isn’t in yet: showing yesterday)' : ''}</p>
+    </section>
+    <section class="card mt-4">
+      <div class="flex items-baseline justify-between"><p class="eyebrow">What’s driving it</p><span class="text-xs muted">tap for more</span></div>
+      <div class="mt-1 divide-y divide-black/5 dark:divide-white/[0.06]">${rows.map((p) => `<button class="tap grid w-full grid-cols-[7.2rem_1fr_4.2rem] items-center gap-3 py-2.5 text-left text-sm" data-action="metric" data-k="${p.key}">
+        <span class="truncate">${p.label}</span>
+        <span class="h-[5px] overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.08]">${p.v != null ? `<span class="block h-full rounded-full bg-current ${scoreColour(p.v)}" style="width:${Math.round(p.v)}%"></span>` : ''}</span>
+        <span class="text-right tabular-nums muted">${p.text}</span></button>`).join('')}</div>
+    </section>
+    ${known.length >= 2 ? `<section class="card tap mt-3" data-action="metric" data-k="readiness">
+      <div class="flex items-baseline justify-between"><p class="eyebrow">Readiness this week</p><span class="text-xs tabular-nums muted">avg ${Math.round(mean(known.map((x) => x.v)))}</span></div>
+      <div class="mt-3 flex h-[76px] items-end justify-between">${week.map((x, i) => `<div class="flex w-8 flex-col items-center gap-1.5"><span class="block w-full rounded-lg bg-current ${x.v != null ? scoreColour(x.v) : 'text-black/5 dark:text-white/5'}" style="height:${x.v != null ? Math.max(8, (x.v / 100) * 56) : 8}px;opacity:${i === 6 ? 1 : 0.5}"></span><span class="text-[11px] muted">${DAYS[dow(x.d)].charAt(0)}</span></div>`).join('')}</div>
+    </section>` : ''}
+    ${homeSleep(date)}`;
+}
+
+function homeSleep(date) {
+  const t = gDay(date);
+  if (t.sleepH == null) return '';
+  const avg = mean(gSeries('sleepH', addDays(date, -1), 7));
+  const parts = [['deepM', 'Deep', 'bg-indigo-600 dark:bg-indigo-400'], ['lightM', 'Light', 'bg-indigo-300 dark:bg-indigo-200/80'], ['remM', 'REM', 'bg-violet-500 dark:bg-violet-300'], ['awakeM', 'Awake', 'bg-amber-500 dark:bg-amber-300']].filter(([k]) => t[k] != null);
+  const total = sum(parts.map(([k]) => t[k]));
+  const diff = avg ? Math.round((t.sleepH - avg) * 60) : null;
+  return `<section class="card tap mt-3" data-action="metric" data-k="sleep">
+    <div class="flex items-baseline justify-between"><p class="eyebrow">Sleep</p>${diff != null ? `<span class="text-xs ${diff >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'muted'}">${diff >= 0 ? '+' : '−'}${Math.abs(diff)} min vs avg</span>` : ''}</div>
+    <p class="mt-1.5 text-[28px] font-light leading-none tracking-tight tabular-nums">${fmtMins(t.sleepH * 60)}${t.sleepScore != null ? `<span class="ml-2 text-sm font-normal muted">score ${Math.round(t.sleepScore)}</span>` : ''}</p>
+    ${parts.length >= 2 ? `<div class="mt-3 flex h-2.5 gap-0.5 overflow-hidden rounded-full">${parts.map(([k, , c]) => `<span class="${c}" style="width:${(t[k] / total) * 100}%"></span>`).join('')}</div>
+    <div class="mt-2 flex justify-between text-[11px] muted">${parts.filter(([k]) => k !== 'lightM').map(([k, l, c]) => `<span><span class="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${c}"></span>${l} ${k === 'awakeM' ? `${t[k]}m` : fmtMins(t[k])}</span>`).join('')}</div>` : ''}
+  </section>`;
+}
+
+function homeTraining(today) {
+  const d = state.draft, r = plannedRoutine(today), doneToday = state.history.some((h) => h.date === today);
+  let body;
+  if (d?.entries.length) {
+    const dr = routineById(d.routineId);
+    body = `<div class="min-w-0"><p class="eyebrow">Workout in progress</p><p class="mt-1 truncate text-2xl font-light tracking-tight">${dr ? esc(dr.name.replace(/^\d+\s*·\s*/, '')) : 'Workout'}</p><p class="text-[13px] muted">${d.entries.length} exercises</p></div><button class="btn-primary shrink-0 px-5 py-2.5" data-action="nav" data-view="today">Continue</button>`;
+  } else if (doneToday) {
+    const w = watchSession(today), rr = routineForDay(today);
+    body = `<div class="min-w-0"><p class="eyebrow">Today’s training</p><p class="mt-1 text-2xl font-light tracking-tight">${rr ? esc(rr.name.replace(/^\d+\s*·\s*/, '')) : 'Workout'} <span class="text-emerald-600 dark:text-emerald-300">✓</span></p><p class="text-[13px] muted">Logged${w ? ` · ${w.mins} min on your watch${w.avgHR ? ` · avg HR ${Math.round(w.avgHR)}` : ''}` : ''}</p></div><button class="btn-ghost shrink-0 px-4 py-2.5 text-sm" data-action="nav" data-view="history">See it</button>`;
+  } else if (r) {
+    const dl = isDeloadWeek(today), n = r.exerciseIds.filter(exById).length, last = watchTimes(r, 1)[0];
+    body = `<div class="min-w-0"><p class="eyebrow">Today’s training${dl ? ' · deload' : ''}</p><p class="mt-1 truncate text-2xl font-light tracking-tight">${esc(r.name.replace(/^\d+\s*·\s*/, ''))}</p><p class="text-[13px] muted">${n} exercises · ~${sessionMinutes(r, today, dl)} min${last ? ` · last time ${last} min` : ''}</p></div><button class="btn-primary shrink-0 px-5 py-2.5" data-action="start-routine" data-id="${r.id}">Start</button>`;
+  } else {
+    const next = [1, 2, 3, 4, 5, 6].map((i) => addDays(today, i)).find((x) => plannedRoutine(x));
+    body = `<div class="min-w-0"><p class="eyebrow">Today’s training</p><p class="mt-1 text-2xl font-light tracking-tight">Rest day</p><p class="text-[13px] muted">${next ? `Next: ${esc(plannedRoutine(next).name.replace(/^\d+\s*·\s*/, ''))} on ${parseISO(next).toLocaleDateString('en-GB', { weekday: 'long' })}` : 'Recover well.'}</p></div><button class="btn-ghost shrink-0 px-4 py-2.5 text-sm" data-action="nav" data-view="today">Train</button>`;
+  }
+  return `<section class="card mt-3 flex items-center justify-between gap-3">${body}</section>`;
+}
+
+function homeFood(today) {
+  const t = targetsFor(today);
+  if (!t) return `<section class="card mt-3"><p class="eyebrow">Food</p><p class="mt-1 text-sm muted">Set your calorie and protein targets to track them here.</p><button class="btn-ghost mt-3 w-full" data-action="nav" data-view="food">Set up food</button></section>`;
+  const tot = dayTotals(today);
+  const row = (k, label, unit, cls) => {
+    const v = tot[k] || 0, target = t[k], left = Math.round(target - v);
+    return `<button class="tap block w-full py-2 text-left" data-action="dash-breakdown" data-k="${k}">
+      <div class="flex items-baseline justify-between gap-2 text-sm"><span>${label}</span>
+        <span class="tabular-nums"><b class="font-semibold">${fmtKg(v)}</b><span class="muted"> / ${fmtKg(target)}${unit}</span>
+        <span class="ml-1.5 text-xs ${left < 0 ? 'text-rose-600 dark:text-rose-400' : 'muted'}">${left < 0 ? `${fmtKg(-left)}${unit} over` : `${fmtKg(left)}${unit} left`}</span></span></div>
+      <div class="mt-1.5 h-[6px] overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.08]"><div class="h-full rounded-full bg-current ${left < 0 && k === 'kcal' ? 'text-rose-500' : cls}" style="width:${Math.min(100, (v / target) * 100)}%"></div></div>
+    </button>`;
+  };
+  return `<section class="card mt-3">
+    <div class="flex items-center gap-4">
+      <button class="tap relative h-[86px] w-[86px] shrink-0" data-action="dash-breakdown" data-k="protein" aria-label="Protein and calories">
+        ${ringSvg(86, 8, (tot.protein || 0) / t.protein, 'text-emerald-600 dark:text-emerald-300')}
+        <span class="absolute inset-3">${ringSvg(62, 8, (tot.kcal || 0) / t.kcal, 'text-indigo-500 dark:text-indigo-400')}</span>
+      </button>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-baseline justify-between"><p class="eyebrow">Food</p>${t.dayType ? `<span class="text-xs muted">${t.dayType === 'training' ? 'Training' : 'Rest'} day</span>` : ''}</div>
+        <p class="mt-1 text-[26px] font-light leading-none tracking-tight tabular-nums">${fmtKg(Math.abs(t.kcal - (tot.kcal || 0)))}<span class="ml-1 text-sm font-normal muted">kcal ${t.kcal - (tot.kcal || 0) < 0 ? 'over' : 'left'}</span></p>
+        <p class="mt-1 text-[11px] muted"><span class="text-indigo-500 dark:text-indigo-400">●</span> calories <span class="ml-1 text-emerald-600 dark:text-emerald-300">●</span> protein</p>
+      </div>
+    </div>
+    <div class="mt-2 divide-y divide-black/5 dark:divide-white/[0.06]">
+      ${row('kcal', 'Calories', '', 'text-indigo-500 dark:text-indigo-400')}${row('protein', 'Protein', ' g', 'text-emerald-600 dark:text-emerald-300')}${row('carbs', 'Carbs', ' g', 'text-amber-500 dark:text-amber-300')}${row('fat', 'Fat', ' g', 'text-violet-500 dark:text-violet-300')}
+    </div>
+    <button class="btn-ghost mt-2 w-full py-2.5 text-sm" data-action="nav" data-view="food">Log food</button>
+  </section>`;
+}
+
+function homeStepsWeight(today) {
+  const series = weightSeries(), last = series[series.length - 1];
+  const rate = weeklyRate(series);
+  const steps = lastDays(7, today).map((d) => ({ d, v: gDay(d).steps ?? null }));
+  const hasSteps = garminOn() && steps.some((x) => x.v != null);
+  const tiles = [];
+  if (hasSteps) {
+    const v = steps[6].v ?? steps.filter((x) => x.v != null).pop().v, max = Math.max(...steps.map((x) => x.v || 0), 10000);
+    tiles.push(`<button class="card tap mt-0 min-w-0 text-left" data-action="metric" data-k="steps"><p class="eyebrow">Steps</p><p class="mt-1.5 text-2xl font-light tracking-tight tabular-nums">${fmtKg(v)}</p>
+      <div class="mt-2 flex h-8 items-end gap-1">${steps.map((x, i) => `<span class="flex-1 rounded-[3px] bg-current ${i === 6 ? 'text-slate-900 dark:text-indigo-300' : 'text-slate-400/50 dark:text-indigo-300/40'}" style="height:${x.v ? Math.max(3, (x.v / max) * 32) : 3}px"></span>`).join('')}</div></button>`);
+  }
+  if (last) {
+    tiles.push(`<button class="card tap mt-0 min-w-0 text-left" data-food="weight-view"><p class="eyebrow">Weight trend</p><p class="mt-1.5 text-2xl font-light tracking-tight tabular-nums">${fmt(round1(last.trend))}<span class="ml-1 text-sm muted">kg</span></p>
+      ${rate != null ? `<p class="mt-1 text-xs ${rate <= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'muted'}">${rate <= 0 ? '−' : '+'}${fmt(Math.abs(round1(rate)))} kg a week</p>` : '<p class="mt-1 text-xs muted">Smoothed average</p>'}</button>`);
+  }
+  if (!tiles.length) return '';
+  return `<section class="mt-3 grid ${tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-1'} gap-3">${tiles.join('')}</section>`;
+}
+
+// ----- Detail screens (tap a metric) -----
+const METRICS = {
+  readiness: 'Readiness', sleep: 'Sleep', rhr: 'Resting heart rate', hrv: 'HRV', bb: 'Body Battery', stress: 'Stress', steps: 'Steps',
+};
+function metricModal() {
+  const k = modal.k, today = todayISO();
+  const tabs = Object.entries(METRICS).map(([key, l]) => `<button class="shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${key === k ? 'bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950' : 'bg-black/5 dark:bg-white/[0.07]'}" data-action="metric" data-k="${key}" ${key === k ? 'data-sel' : ''}>${l}</button>`).join('');
+  const series = (key, n) => lastDays(n, today).map((d) => ({ d, v: gDay(d)[key] ?? null }));
+  const big = (v, unit, sub = '') => `<p class="mt-1 text-5xl font-light tracking-tighter tabular-nums">${v}${unit ? `<span class="ml-1 text-lg font-normal muted">${unit}</span>` : ''}</p>${sub ? `<p class="mt-1 text-sm muted">${sub}</p>` : ''}`;
+  const stat = (label, v) => `<div class="tile text-center"><p class="eyebrow">${label}</p><p class="mt-1 text-lg font-light tabular-nums">${v ?? '—'}</p></div>`;
+  const note = (t) => `<p class="mt-4 text-[13px] leading-relaxed muted">${t}</p>`;
+  let body = '';
+  const t = gDay(latestScoreDay()?.date || today);
+
+  if (k === 'readiness') {
+    const got = latestScoreDay();
+    if (!got) body = '<p class="mt-4 text-sm muted">No readiness yet: it needs last night’s sleep or resting heart rate from Garmin.</p>';
+    else {
+      const { r, date } = got, lvl = scoreLevel(r.score), adv = readiness(date);
+      const s14 = lastDays(14, today).map((d) => ({ d, v: readinessScore(d)?.score ?? null }));
+      const totalW = sum(r.parts.map((p) => p.w));
+      body = `${big(r.score, '', `<span class="${LEVEL_TONE[lvl]} font-medium">${LEVEL_TEXT[lvl]}</span>${date !== today ? ' · from yesterday' : ''}`)}
+        ${adv ? `<p class="mt-3 rounded-2xl bg-black/[0.04] p-3 text-sm dark:bg-white/[0.06]">${adv.advice}</p>` : ''}
+        <p class="eyebrow mt-5">What’s in the score</p>
+        <div class="mt-1 divide-y divide-black/5 dark:divide-white/[0.06]">${r.parts.map((p) => `<button class="tap grid w-full grid-cols-[1fr_auto] gap-x-3 py-2.5 text-left text-sm" data-action="metric" data-k="${p.key}">
+          <span>${p.label} <span class="muted">· ${p.text}</span></span><span class="tabular-nums"><b class="font-semibold">${Math.round(p.v)}</b><span class="muted">/100</span></span>
+          <span class="col-span-2 mt-1.5 h-[5px] overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.08]"><span class="block h-full rounded-full bg-current ${scoreColour(p.v)}" style="width:${Math.round(p.v)}%"></span></span>
+          <span class="col-span-2 mt-1 text-[11px] muted">Counts for ${Math.round((p.w / totalW) * 100)}% of today’s score</span></button>`).join('')}</div>
+        <p class="eyebrow mt-5">Last 2 weeks</p>
+        ${dayBars(s14, { colourOf: scoreColour, avg: mean(s14.map((x) => x.v).filter((v) => v != null)), fmtV: (v) => v })}
+        ${note('Readiness compares last night with your own normal, not other people’s. It blends: sleep length (with Garmin’s sleep score), sleep against your 7-day average, resting heart rate against your 4-week normal, Body Battery, and HRV once Garmin has learned your range (about 3 weeks of nights). 75+ = good to train, 60–74 = okay (train as planned but don’t grind the last set), under 60 = take it easier. It’s advice only and never changes your targets.')}`;
+    }
+  } else if (k === 'sleep') {
+    const s = series('sleepH', 14), avg7 = mean(gSeries('sleepH', today, 7)), avg28 = mean(gSeries('sleepH', today, 28));
+    body = `${t.sleepH != null ? big(fmtMins(t.sleepH * 60), '', t.sleepScore != null ? `Garmin sleep score ${Math.round(t.sleepScore)}` : '') : '<p class="mt-3 text-sm muted">No sleep for last night yet.</p>'}
+      ${sleepStagesHtml(t)}
+      <div class="mt-4 grid grid-cols-3 gap-2">${stat('7-day avg', avg7 ? fmtMins(avg7 * 60) : null)}${stat('28-day avg', avg28 ? fmtMins(avg28 * 60) : null)}${stat('Garmin need', t.needM ? fmtMins(t.needM) : null)}</div>
+      <p class="eyebrow mt-5">Last 2 weeks</p>${dayBars(s, { cls: 'text-indigo-500 dark:text-indigo-400', avg: avg7, fmtV: (v) => fmtMins(v * 60) })}
+      ${note('Sleep is the biggest recovery lever for strength and for appetite on a cut. 7–9 hours suits most people; a regular bedtime matters more than one long lie-in. The dashed line is your 7-day average.')}`;
+  } else if (k === 'rhr') {
+    const s = series('rhr', 28), base = median(gSeries('rhr', addDays(today, -1), 28));
+    body = `${t.rhr != null ? big(Math.round(t.rhr), 'bpm', base ? `Your normal ≈ ${Math.round(base)} bpm (${t.rhr - base >= 0 ? '+' : ''}${Math.round(t.rhr - base)})` : '') : '<p class="mt-3 text-sm muted">No resting heart rate yet.</p>'}
+      <p class="eyebrow mt-5">Last 4 weeks</p>${dayBars(s, { cls: 'text-rose-400 dark:text-rose-300', avg: base, min: 40, fmtV: (v) => `${Math.round(v)} bpm` })}
+      ${note('Lower is generally better, and it tends to drop as fitness improves and as you lose weight. 5 or more above your normal (dashed line) often means poor sleep, alcohol, stress, a hard week or an illness starting: a good day to keep sets at RPE 7–8.')}`;
+  } else if (k === 'hrv') {
+    const s = series('hrv', 28);
+    body = t.hrv != null
+      ? `${big(Math.round(t.hrv), 'ms', t.hrvLo && t.hrvHi ? `Your normal ${Math.round(t.hrvLo)}–${Math.round(t.hrvHi)} ms${t.hrvStatus ? ` · ${esc(String(t.hrvStatus).toLowerCase())}` : ''}` : '')}
+        <p class="eyebrow mt-5">Last 4 weeks</p>${dayBars(s, { cls: 'text-violet-500 dark:text-violet-300', avg: t.hrvLo && t.hrvHi ? (t.hrvLo + t.hrvHi) / 2 : median(s.map((x) => x.v).filter((v) => v != null)), fmtV: (v) => `${Math.round(v)} ms` })}`
+      : `<p class="mt-4 rounded-2xl bg-black/[0.04] p-3 text-sm dark:bg-white/[0.06]"><b>Garmin is still learning your HRV.</b> It needs about 3 weeks of nights wearing the watch before it shows a number and your normal range. Until then readiness uses sleep, resting heart rate and Body Battery.</p>`;
+    body += note('HRV (heart rate variability) is the tiny variation between heartbeats overnight. Higher than your own normal usually means well recovered; well below it means stress, poor sleep, alcohol or illness. Only compare it with yourself: numbers vary hugely between people.');
+  } else if (k === 'bb') {
+    const s = series('bb', 14);
+    body = `${t.bb != null ? big(Math.round(t.bb), '', t.bb >= 70 ? 'High' : t.bb >= 40 ? 'Medium' : 'Low') : '<p class="mt-3 text-sm muted">No Body Battery yet.</p>'}
+      <p class="eyebrow mt-5">Last 2 weeks</p>${dayBars(s, { colourOf: (v) => LEVEL_STROKE[v >= 60 ? 'good' : v >= 30 ? 'mid' : 'low'], fmtV: (v) => Math.round(v) })}
+      ${note('Garmin’s 0–100 estimate of your energy: it charges overnight and drains with activity and stress. The app uses the morning value. Under 30 counts against readiness.')}`;
+  } else if (k === 'stress') {
+    const s = series('stress', 14);
+    body = `${t.stress != null ? big(Math.round(t.stress), '', t.stress <= 25 ? 'Low' : t.stress <= 50 ? 'Medium' : 'High') : '<p class="mt-3 text-sm muted">No stress number yet.</p>'}
+      <p class="eyebrow mt-5">Last 2 weeks</p>${dayBars(s, { cls: 'text-amber-500 dark:text-amber-300', fmtV: (v) => Math.round(v) })}
+      ${note('Garmin’s daily average stress (0–100), worked out from your heart rate and HRV. Training days read higher; a run of high days alongside poor sleep is a sign to ease off. It isn’t part of the readiness score.')}`;
+  } else if (k === 'steps') {
+    const s = series('steps', 28), avg7 = mean(gSeries('steps', addDays(today, -1), 7));
+    body = `${big(fmtKg(gDay(today).steps ?? 0), '', avg7 ? `7-day average ${fmtKg(avg7)}` : '')}
+      <p class="eyebrow mt-5">Last 4 weeks</p>${dayBars(s, { cls: 'text-slate-500 dark:text-indigo-300', avg: 10000, fmtV: (v) => fmtKg(v) })}
+      ${stepsWeightChart()}
+      ${note('Steady daily steps help a cut more than people expect, and they don’t eat into gym recovery. The dashed line is 10,000. Don’t eat back the watch’s calories: the weekly check-in uses your real weight trend instead.')}`;
+  }
+  return `${modalHead(METRICS[k])}<div class="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1">${tabs}</div>${body}`;
+}
 
 // ----- Garmin settings (modal) -----
 function garminModal() {
@@ -3477,8 +3786,9 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, garmin: garminModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, metric: metricModal, garmin: garminModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
+  document.querySelector('#modal-body [data-sel]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   box.classList.remove('hidden'); box.classList.add('flex');
   if (modal.type === 'food' && modal.step === 'scan') startScanner();
   if (modal.type === 'weight') attachWeightChart();
@@ -4357,7 +4667,7 @@ function breakdownModal() {
   const tot = dayTotals(date)[k] || 0;
   const target = targetsFor(date)?.[k];
   const rows = nutrientBreakdown(date, k);
-  const tabs = NUTRIENTS.map(([key, l]) => `<button class="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${key === k ? 'bg-indigo-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}" data-food="breakdown" data-k="${key}">${l}</button>`).join('');
+  const tabs = NUTRIENTS.map(([key, l]) => `<button class="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${key === k ? 'bg-indigo-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}" data-food="breakdown" data-k="${key}" ${key === k ? 'data-sel' : ''}>${l}</button>`).join('');
   const aim = target == null ? '' : kind === 'max' ? ` · max ${fmt(target)} ${unit}` : kind === 'min' ? ` · aim ${fmt(target)}+ ${unit}` : ` of ${k === 'kcal' ? fmtKg(target) : target} ${unit}`;
   const list = rows.length ? rows.map((r) => {
     const share = tot > 0 ? Math.round((r.v / tot) * 100) : 0;
@@ -5478,16 +5788,20 @@ document.addEventListener('click', (e) => {
     }
     case 'goto-exercises': view = 'exercises'; render(); return;
     case 'goto-today': view = 'today'; render(); return;
-    case 'toggle-theme': {
-      const dark = document.documentElement.classList.toggle('dark');
-      try { localStorage.setItem('pot.theme', dark ? 'dark' : 'light'); } catch (err) {}
+    case 'metric': modal = { type: 'metric', k: btn.dataset.k }; renderModal(); return;
+    case 'dash-breakdown': modal = { type: 'breakdown', date: todayISO(), k: btn.dataset.k }; renderModal(); return;
+    case 'toggle-theme': { // Auto (matches the iPhone) → Light → Dark → Auto
+      const now = lsGet('pot.theme'), next = now === null ? 'light' : now === 'light' ? 'dark' : null;
+      try { if (next) localStorage.setItem('pot.theme', next); else localStorage.removeItem('pot.theme'); } catch (err) {}
+      window.applyTheme?.();
+      toast(next === 'light' ? 'Light mode' : next === 'dark' ? 'Dark mode' : 'Automatic: matches your iPhone');
       return;
     }
 
     // Workout logging
     case 'start-routine':
       if (state.draft?.entries.length && !confirm('Replace the workout in progress?')) return;
-      startRoutine(id); modal = null; window.scrollTo(0, 0); break;
+      startRoutine(id); modal = null; view = 'today'; window.scrollTo(0, 0); break;
     case 'add-entry': addEntry(id); break;
     case 'add-all': {
       const inDraft = new Set((state.draft?.entries || []).map((en) => en.exerciseId));

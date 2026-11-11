@@ -83,37 +83,66 @@ No test suite is committed. Test with Playwright (preinstalled; `require('playwr
   to test the auto rest timer.
 - Check at 390px wide (iPhone) in dark mode; screenshot and look.
 
-## Look ("Plate", chosen Oct 2026)
+## Look ("Calm", chosen Nov 2026; replaced "Plate")
 
-The owner picked "Plate" from four trial looks (inspired by a friend's app,
-deliberately not a copy). Warm near-black / cream neutrals, bumper-plate red
-accent, **Anton** headings (h1/h2 and `.display`: uppercase, weight 400; never
-add `font-bold` to Anton, it fakes bold) over **Archivo** body text, from
-Google Fonts (cached by `sw.js`; fallbacks if offline). The palette is done by
-remapping Tailwind's `slate` (neutrals), `indigo` (red accent), `violet`
-(plate blue), `emerald` (plate green), `amber` (plate yellow) and `white` in
-`tailwind.config`, so existing classes pick it up; keep using those class
-names. Each routine has a plate colour by position (`PLATE_COLORS`,
-`plateColor(r)`, `plateDot(r)`): red, blue, yellow, green, white. The
-12-week strip shows round "plates". `.eyebrow` = small red uppercase label.
-Home Screen icon (`icons/`, Oct 2026, owner picked option "C" of five): a red
-plate disc with a dark rim and a cream dumbbell on warm black, matching the
-header badge (made with PIL; maskable version has
-more padding). iOS only picks up a new icon when the app is removed and re-added
-to the Home Screen, which wipes that app's storage: always back up first and
-restore after.
-Header subtitle shows the programme week (`#hdr-sub`, set in `render()`).
-Friend-style layout pieces: Today hero card with a plate-colour bar, tags and
-"Start workout"; `todayTiles()` (weight trend, sessions, calories left, next
-check-in); Plan tab week as a table (`planTable()`: day / session / status,
-done days named by muscles logged); Stats month calendar (`monthCard()`, top
-bar gym, bottom bar food with calories left half and protein right half via
-`foodDayRating()`: on target ±10% kcal / ≥95% protein, close, well off;
-planned days before the first logged workout aren't "missed").
+The owner asked for a cleaner wearable-app look (Oura, Ultrahuman, Whoop) with
+more focus on Garmin. From 7 trials + 4 blends (scratch files, not committed)
+they picked **"K · Day & night"**: a blend of Calm (Oura navy), Daylight (warm
+off-white cards), Aurora (soft glow) and Contributors (score + "what's driving
+it" + week chart), applied to the **whole app**.
+- **Light/dark follows the iPhone** (`prefers-color-scheme`) unless picked:
+  the header moon cycles Auto → Light → Dark (`pot.theme` = 'light' | 'dark' |
+  missing; `window.applyTheme()` in the head script also sets theme-color).
+- Palette is still done by remapping Tailwind colours in `tailwind.config`,
+  so keep using the same class names: `slate` = neutrals (light mode uses
+  50–500 warm off-white/greys, dark mode 400–950 deep navy, bg #0c0f17),
+  `indigo` = soft periwinkle accent (links, calories), `emerald` = calm green
+  ("good", protein), `amber` = soft amber, `violet` = sleep purple, `white` =
+  pure white. Rose stays the default (danger/over).
+- **Inter** everywhere (Google Fonts, cached by `sw.js`); big numbers are
+  `font-light tracking-tight`. `.display` is now light weight, not Anton;
+  h1/h2 semibold. `.eyebrow` = small muted uppercase label.
+- Cards are translucent (`.card`: rounded-3xl, white/80 or white/5, blur) over
+  a fixed `.aurora` glow (green + lavender radial gradients) behind the top
+  of every screen. `.btn-primary` is ink (black in light, off-white in dark),
+  pill-shaped. `.tap` = pressable card.
+- Header: small green→periwinkle gradient badge + "Overload" + programme
+  week (`#hdr-sub`). The Home Screen icon is still the old red plate "C"
+  (changing it needs the app removed and re-added; offered, not done).
+- Routine plate colours (`PLATE_COLORS`) still exist but now map to the new
+  palette; the 12-week strip and month calendar are unchanged in layout.
+
+## Today dashboard (Nov 2026)
+
+New first tab **Today** (`view = 'home'`, `homeView()`, the default view);
+the old Workout tab is now labelled **Train** (`view = 'today'`). Order:
+readiness ring → "What's driving it" → readiness this week → sleep (stages)
+→ today's training (Start / Continue / logged with watch time / rest day +
+next session) → food → steps + weight trend. Starting a routine from here
+switches to Train.
+- **Readiness score 0–100** (`readinessScore(date)`): weighted parts, each
+  0–100: sleep length (15 at 4.5 h → 100 at 8 h, averaged with Garmin's
+  sleep score) ×30; sleep vs 7-day avg (−40 per hour short) ×15; resting HR vs
+  28-day median (92 − 8.4 × bpm over) ×25; Body Battery ×20; HRV vs Garmin's
+  range / median ×20 once available. Missing parts are dropped; needs sleep
+  or resting HR. Levels (`scoreLevel`): ≥75 "Good to train", 60–74 "Okay to
+  train", <60 "Take it easier". `readiness()` now takes its level from the
+  score (flags stay as the reasons); Garmin `tr` still wins if it ever arrives.
+  Worked example shown to the owner: 7h 24m, resting HR normal, BB 76 → ~82–90.
+- **Every metric is tappable** → `metricModal()` (`modal = {type:'metric', k}`,
+  tabs for readiness, sleep, rhr, hrv, bb, stress, steps): big number, 2–4 week
+  bars (`dayBars()`, dashed average/normal line), averages, a plain-English
+  explanation. Readiness shows each part's /100 and weight. Weight trend opens
+  the existing weight modal; food rows open the nutrient breakdown for today
+  (`dash-breakdown`).
+- **Food card**: calories/protein double ring + rows for calories, protein,
+  carbs and fat as "eaten / target" with "x left" or "x over" (owner asked).
+- Uses today's Garmin day, or yesterday's if last night hasn't synced (says so).
+- Selected tab chips in modals scroll into view (`data-sel`).
 
 ## How the app works
 
-Tabs: Workout, Food, Plan, Stats, Exercises, History (History also holds
+Tabs: Today (dashboard), Train (the old Workout tab), Food, Plan, Stats, Exercises, History (History also holds
 Settings: bar weight, progression mode, storage, erase). Plus the plan builder
 screen (no tab).
 
@@ -417,10 +446,11 @@ The owner should start a strength activity on the watch each session.
 Not chosen: intensity minutes, VO2 max trend, recovery time. Advised against:
 watch calories, SpO2/respiration, Training Status/load.
 Owner wears the Instinct 3 to bed; no Garmin scale (weight stays in the app).
-Features: Workout-tab readiness card (`readiness()`: flags = sleep < 6 h or
+Features: the Today dashboard and its readiness score (see "Today
+dashboard"); Train-tab readiness card (`readiness()`: reasons = sleep < 6 h or
 >1.25 h under 7-day avg, HRV under Garmin's baseline or 0.9 × 28-day median,
-resting HR ≥ +5 vs 28-day median, Body Battery < 30; 0 → Ready, 1 → Okay,
-2+ → Take it easier; advice only, never changes targets); Stats "Garmin
+resting HR ≥ +5 vs 28-day median, Body Battery < 30; level from the 0–100
+score, shown with it; advice only, never changes targets); Stats "Garmin
 recovery" card (6 tiles + 4-week steps bars with weight-trend line); weekly
 recap "Garmin avg" line; programme check-in review shows 4-week averages vs
 the block before.
