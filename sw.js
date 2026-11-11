@@ -4,7 +4,7 @@
  * saved copy; libraries are cache-first; food data is served from the cache
  * and refreshed in the background.
  */
-const CACHE = 'overload-v3'; // bump when icons change: they're served cache-first
+const CACHE = 'overload-v4'; // bump when icons change: they're served cache-first
 const CORE = ['./', 'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 const LIBS = ['https://cdn.tailwindcss.com/3.4.16', 'https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap'];
 const PAGE_TIMEOUT_MS = 4000;

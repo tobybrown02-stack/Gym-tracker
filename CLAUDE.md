@@ -107,8 +107,10 @@ it" + week chart), applied to the **whole app**.
   of every screen. `.btn-primary` is ink (black in light, off-white in dark),
   pill-shaped. `.tap` = pressable card.
 - Header: small green→periwinkle gradient badge + "Overload" + programme
-  week (`#hdr-sub`). The Home Screen icon is still the old red plate "C"
-  (changing it needs the app removed and re-added; offered, not done).
+  week (`#hdr-sub`). Home Screen icon (Nov 2026, matches the badge): navy
+  background with a soft green/lavender glow and a green→periwinkle disc
+  with a navy dumbbell (PIL; maskable version drawn at 0.78 scale). iOS only
+  picks up a new icon after removing and re-adding the app (back up first).
 - Routine plate colours (`PLATE_COLORS`) still exist but now map to the new
   palette; the 12-week strip and month calendar are unchanged in layout.
 
