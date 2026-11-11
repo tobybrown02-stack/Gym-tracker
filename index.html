@@ -952,6 +952,10 @@ const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke=
 function render() {
   const pw = state.programme && progWeek(todayISO());
   document.getElementById('hdr-sub').textContent = pw ? `Week ${pw} of ${PROG_WEEKS} · ${pw % 4 ? BLOCKS[blockOf(pw)].name : 'Deload'}` : 'Train with a plan';
+  // The Today dashboard is built on wearable data: only show it once Garmin is set up.
+  const hasToday = garminOn();
+  document.querySelector('.nav-btn[data-view="home"]')?.classList.toggle('hidden', !hasToday);
+  if (view === 'home' && !hasToday) view = 'today';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   const views = { home: homeView, today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView, builder: builderView };
   document.getElementById('view').innerHTML = (view === 'home' || view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();

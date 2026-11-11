@@ -116,7 +116,12 @@ it" + week chart), applied to the **whole app**.
 
 ## Today dashboard (Nov 2026)
 
-New first tab **Today** (`view = 'home'`, `homeView()`, the default view);
+New first tab **Today** (`view = 'home'`, `homeView()`, the default view).
+It only appears when Garmin is set up (`garminOn()`; `render()` hides the nav
+button and falls back to Train), at the owner's request, so the girlfriend's
+phone (Apple Watch, no Garmin) opens on Train as before. An Apple Watch
+version via a Shortcuts automation + "Sync Apple Health" clipboard paste was
+proposed (Apple Health can't be read by websites) and not built;
 the old Workout tab is now labelled **Train** (`view = 'today'`). Order:
 readiness ring → "What's driving it" → readiness this week → sleep (stages)
 → today's training (Start / Continue / logged with watch time / rest day +
