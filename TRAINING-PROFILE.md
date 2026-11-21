@@ -1,7 +1,7 @@
 # Training profile
 
 A summary of my training, food and recovery set-up, for chats about training.
-Last updated 11 Nov 2026. My logged workouts and food are on my phone and
+Last updated 21 Nov 2026. My logged workouts and food are on my phone and
 aren't in this file; I'll share screenshots or numbers when they're needed.
 
 ## About me
@@ -101,6 +101,10 @@ block, weeks 1–3 build and week 4 is a deload.
 - A weekly check-in estimates my real maintenance from 3 weeks of intake plus
   the weight trend. It suggests changes of at most ±200 kcal, and I choose
   whether to accept.
+- Other apps' calculators that pick "build muscle" give a surplus (one gave
+  3,050 kcal): not right for me while I'm cutting to 95 kg.
+- Pre-workout: plain dates, banana or rice cakes close to training; high-fibre
+  bars 1.5–2 hours before at most.
 - Don't eat back exercise calories, and ignore wearable calorie-burn figures.
 
 ## Recovery and wearables
@@ -114,6 +118,10 @@ block, weeks 1–3 build and week 4 is a deload.
   average, resting HR vs my 4-week normal, Body Battery, and HRV once Garmin
   has learned it. 75+ "good to train", 60–74 "okay", under 60 "take it
   easier". It's advice only.
-- I also own an Apple Watch S10, a Fitbit and a Whoop. The Whoop
+- I also own a **Fitbit Air** (I prefer how it looks) but it can't connect to
+  my app: Google's health API isn't open to individuals. If I wear it in the
+  day, I should still wear the Garmin to bed, since readiness comes from
+  overnight data.
+- I also own an Apple Watch S10 and a Whoop. The Whoop
   subscription ends Mar 2027 and I've been advised not to renew.
 - I don't have a Garmin scale. I weigh in using my app.

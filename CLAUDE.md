@@ -27,6 +27,13 @@ before changing anything.
 - **Hypermobile**: prefers machines over barbells; **no dumbbell presses**;
   dumbbell curls and lateral raises are fine. Upper body is the priority;
   doesn't love training legs (legs are already their best body part).
+- Owns a **Fitbit Air** and prefers its look to the Instinct; asked about
+  connecting it (Nov 2026). Not possible for free: the old Fitbit Web API was
+  shut ~30 Oct–2 Nov 2026, and the Google Health API isn't onboarding new
+  projects and needs restricted-scope review + a paid security assessment.
+  Suggested: Fitbit by day, Garmin at night (readiness is all overnight
+  data; only steps suffer), or a manual morning check-in box (offered, not
+  built), or re-check if Google adds personal access.
 - Wearables owned: Garmin Instinct 3 (recommended as the everyday device: free,
   long battery, sleep/HRV/readiness/steps), Apple Watch S10, Fitbit, and a
   Whoop whose subscription ends March 2027 (advised not to renew). Garmin
@@ -434,6 +441,13 @@ Checks on open at most every 30 min (`garminAutoSync`); `state.garmin.lastSync`
 version stored the key in `pot.garminKey`; it's now deleted on load.
 Data paths are best guesses: if numbers are missing, read the log in
 "Show details" and adjust both `garmin_sync.mjs` parsers.
+Passphrase reset (Nov 2026, owner forgot it; secrets can't be read back):
+update the `GARMIN_PASSPHRASE` secret, run the workflow, wait for Pages to
+publish (a few minutes; until then the old file says "wrong passphrase"),
+then enter it in the app (the app saves it even when decryption fails). The
+job's "Rebuild GitHub Pages" step now sleeps 15 s first: once it rebuilt the
+previous commit, so new data wasn't published. A scheduled run on 11 Nov was
+cancelled by GitHub (no runner for 15 min, no logs): not an app fault.
 First real run (30 Oct 2026): token, daily summary, sleep (incl. stages) and
 activities all 200. HRV 200 but `lastNightAvg`/`baseline` null, status "NONE",
 feedback "ONBOARDING" (Garmin needs ~3 weeks of nights). Training Readiness
@@ -477,6 +491,13 @@ Offered to the owner and not chosen (yet):
 - Fully automatic weekly calorie updates (keep the 200 kcal cap).
 - "Copy the whole day" for food.
 - CSV export of workouts and food.
+
+Advice given (Nov 2026, chat only): the friend's app quiz with "build
+muscle" first gave 3,050 kcal (+200 over its 2,850 formula maintenance),
+185 g protein, 385 g carbs: explained it's a lean bulk, wrong for the 95 kg
+goal; with "lose fat" it gave ~2,350, matching this app. High-fibre bars
+(e.g. date-based) before training: fine 1.5–2 h before if ~8 g+ fibre;
+plain dates, banana, rice cakes closer to the session.
 
 Not possible or advised against:
 - Apple Health sync: needs a native app. (Garmin is done via the Personal API.)
