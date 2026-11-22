@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0c0f17">
+  <meta name="theme-color" content="#050505">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Overload">
@@ -23,7 +23,7 @@
         var dark = p ? p === 'dark' : mq ? mq.matches : true;
         document.documentElement.classList.toggle('dark', dark);
         var m = document.querySelector('meta[name=theme-color]');
-        if (m) m.setAttribute('content', dark ? '#0c0f17' : '#f6f4f0');
+        if (m) m.setAttribute('content', dark ? '#050505' : '#f4f5f0');
       };
       window.applyTheme();
       if (mq && mq.addEventListener) mq.addEventListener('change', window.applyTheme);
@@ -31,22 +31,23 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@200;300;400;500;600;700&display=swap">
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
   <script>
-    // "Calm" look (Nov 2026, the owner's pick "K"): warm off-white by day, deep navy at
-    // night, soft periwinkle accent, calm green for "good", Inter throughout.
+    // "Volt" look (Nov 2026, the owner's pick): near-black or off-white, neon lime accent,
+    // Barlow Condensed capitals for headings and big numbers, Inter for text.
     // The palette is remapped here so every slate/indigo/emerald/amber class picks it up:
-    // light mode uses slate 50–500, dark mode slate 400–950.
+    // light mode uses slate 50–500, dark mode slate 400–950; indigo = lime (400 = neon,
+    // 600–700 = olive for readable text on light backgrounds).
     if (window.tailwind) tailwind.config = {
       darkMode: 'class',
       theme: { extend: {
-        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'], display: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'] },
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'], display: ['Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', 'ui-sans-serif', 'sans-serif'] },
         colors: {
           white: '#ffffff',
-          slate: { 50: '#f6f4f0', 100: '#eeebe5', 200: '#e3dfd7', 300: '#cdc8be', 400: '#9aa3b8', 500: '#86837c', 600: '#56575c', 700: '#2a3142', 800: '#1d2433', 900: '#151b28', 950: '#0c0f17' },
-          indigo: { 50: '#eef0ff', 100: '#dfe3ff', 200: '#c4cbff', 300: '#a3adfc', 400: '#8592f7', 500: '#6672ee', 600: '#5359dc', 700: '#4447b8', 800: '#393c93', 900: '#313475', 950: '#1d1e45' },
-          emerald: { 50: '#ebf8f1', 100: '#d0efdf', 200: '#a6dfc3', 300: '#8fd9b6', 400: '#5ec597', 500: '#2fa871', 600: '#1e8a5a', 700: '#1a6f4a', 800: '#17583c', 900: '#134832', 950: '#08281b' },
+          slate: { 50: '#f4f5f0', 100: '#eaebe4', 200: '#dcddd5', 300: '#c4c6bc', 400: '#8c8c88', 500: '#71726c', 600: '#4b4c48', 700: '#2b2b2b', 800: '#1d1d1d', 900: '#131313', 950: '#050505' },
+          indigo: { 50: '#f8ffe0', 100: '#efffb8', 200: '#e5ff8a', 300: '#dcff5f', 400: '#d4ff3a', 500: '#c3f21e', 600: '#5f7c00', 700: '#4b6200', 800: '#3c4e00', 900: '#2f3d00', 950: '#1b2300' },
+          emerald: { 50: '#eafbef', 100: '#cdf5d8', 200: '#9debb4', 300: '#6ddf91', 400: '#3fd171', 500: '#22b85a', 600: '#179447', 700: '#14743a', 800: '#125c31', 900: '#0f4b29', 950: '#052a15' },
           amber: { 50: '#fdf6ea', 100: '#faeacb', 200: '#f5d59a', 300: '#f0c27b', 400: '#e9ad52', 500: '#e0a03a', 600: '#c4851f', 700: '#9c6819', 800: '#7d5318', 900: '#664416', 950: '#3a2408' },
           violet: { 50: '#f3f0fe', 100: '#e7e0fc', 200: '#d2c4fa', 300: '#b99cff', 400: '#a083f0', 500: '#8a6ee0', 600: '#7254c7', 700: '#5e44a3', 800: '#4d3a82', 900: '#40336a', 950: '#271d45' },
         },
@@ -55,12 +56,12 @@
   </script>
   <style type="text/tailwindcss">
     @layer components {
-      .card { @apply rounded-3xl border border-black/5 bg-white/80 p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.05] dark:shadow-none; }
+      .card { @apply rounded-2xl border border-black/[0.06] bg-white p-4 dark:border-white/[0.07] dark:bg-slate-900; }
       .muted { @apply text-slate-500 dark:text-slate-400; }
       .input { @apply w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600; }
       .label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
       .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold transition active:scale-[0.98] disabled:opacity-50; }
-      .btn-primary { @apply btn rounded-full bg-slate-950 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white; }
+      .btn-primary { @apply btn bg-indigo-400 font-display text-lg font-bold uppercase tracking-[0.06em] text-slate-950 hover:bg-indigo-300; }
       .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-500; }
       .btn-ghost { @apply btn bg-black/[0.05] text-slate-700 hover:bg-black/10 dark:bg-white/[0.07] dark:text-slate-200 dark:hover:bg-white/10; }
       .btn-danger { @apply btn bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400; }
@@ -69,7 +70,7 @@
       .seg { @apply flex cursor-pointer items-center justify-center rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
       .seg-input:checked + .seg { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
       .chip { @apply rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 transition dark:border-slate-700 dark:text-slate-300; }
-      .chip[data-level="1"] { @apply border-indigo-600 bg-indigo-600 text-white dark:text-white; }
+      .chip[data-level="1"] { @apply border-indigo-400 bg-indigo-400 text-slate-950 dark:text-slate-950; }
       .chip[data-level="0.5"] { @apply border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300; }
       .set-row { @apply grid grid-cols-[1.75rem_1fr_1fr_3.25rem_2.75rem_2rem] items-center gap-1.5 rounded-xl px-1 py-1 transition; }
       .set-row.done { @apply bg-emerald-500/10; }
@@ -78,17 +79,18 @@
       .set-row.done .check { @apply border-emerald-500 bg-emerald-500 text-white; }
       .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
       .nav-btn { @apply flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-medium text-slate-500 transition dark:text-slate-400; }
-      .nav-btn.active { @apply text-slate-950 dark:text-white; }
-      .tile { @apply rounded-3xl border border-black/5 bg-white/80 p-3 dark:border-white/[0.08] dark:bg-white/[0.05]; }
-      .display { @apply font-light tracking-tight; }
-      .eyebrow { @apply text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400; }
+      .nav-btn.active { @apply text-indigo-600 dark:text-indigo-400; }
+      .tile { @apply rounded-2xl border border-black/[0.06] bg-white p-3 dark:border-white/[0.07] dark:bg-slate-900; }
+      .display { @apply font-display font-bold uppercase tracking-[0.01em]; }
+      .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400; }
       .tap { @apply cursor-pointer transition active:scale-[0.985]; }
     }
     @layer base {
-      h1, h2 { @apply font-semibold tracking-tight; }
+      h1, h2 { @apply font-display font-extrabold uppercase tracking-[0.01em]; }
     }
-    /* Soft aurora glow behind the top of every screen */
-    .aurora { position: fixed; inset: -120px -80px auto; height: 520px; z-index: -1; pointer-events: none; filter: blur(12px);
+:root { --accent: #5f7c00; } .dark { --accent: #d4ff3a; }
+        /* Soft aurora glow behind the top of every screen */
+    .aurora { display: none; position: fixed; inset: -120px -80px auto; height: 520px; z-index: -1; pointer-events: none; filter: blur(12px);
       background: radial-gradient(38% 38% at 28% 40%, rgba(84,214,174,.30), transparent 70%), radial-gradient(38% 40% at 74% 32%, rgba(150,140,255,.28), transparent 70%); }
     .dark .aurora { background: radial-gradient(38% 38% at 28% 40%, rgba(84,214,174,.20), transparent 70%), radial-gradient(40% 40% at 72% 30%, rgba(122,140,255,.26), transparent 70%), radial-gradient(70% 60% at 50% 0%, rgba(35,50,74,.9), transparent 70%); }
     input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -97,14 +99,14 @@
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
   <div class="aurora" aria-hidden="true"></div>
-  <header class="sticky top-0 z-20 border-b border-black/5 bg-slate-50/70 backdrop-blur-xl dark:border-white/5 dark:bg-slate-950/60">
+  <header class="sticky top-0 z-20 border-b border-black/[0.06] bg-slate-50/90 backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/90">
     <div class="mx-auto flex max-w-xl items-center justify-between px-4 py-3">
       <div class="flex items-center gap-2">
-        <div class="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-300 to-indigo-400 text-slate-950">
+        <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-400 text-slate-950">
           <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 7v10M18 7v10M3 10v4M21 10v4M6 12h12"/></svg>
         </div>
         <div>
-          <h1 class="text-lg font-semibold leading-none tracking-tight">Overload</h1>
+          <h1 class="text-[22px] leading-none">Overload</h1>
           <p class="mt-1 text-[11px] font-medium leading-tight muted" id="hdr-sub">Train with a plan</p>
         </div>
       </div>
@@ -121,20 +123,20 @@
 
   <main id="view" class="mx-auto max-w-xl px-4 pb-48 pt-4"></main>
 
-  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-black/5 bg-slate-50/85 backdrop-blur-xl dark:border-white/5 dark:bg-slate-950/80" style="padding-bottom: env(safe-area-inset-bottom)">
+  <nav class="fixed inset-x-0 bottom-0 z-20 border-t border-black/[0.06] bg-slate-50/95 backdrop-blur-xl dark:border-white/[0.07] dark:bg-slate-950/95" style="padding-bottom: env(safe-area-inset-bottom)">
     <!-- Rest timer (shown while resting) -->
     <div id="rest-timer" class="mx-auto hidden max-w-xl px-4 pt-3">
-      <div class="flex items-center gap-2 rounded-2xl bg-slate-950 px-3 py-2 text-white dark:bg-slate-100 dark:text-slate-950">
+      <div class="flex items-center gap-2 rounded-2xl bg-indigo-400 px-3 py-2 text-slate-950">
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline justify-between gap-2">
             <span class="truncate text-xs font-semibold uppercase tracking-wide opacity-80" id="rest-label">Rest</span>
-            <span class="text-2xl font-extrabold tabular-nums" id="rest-time">0:00</span>
+            <span class="font-display text-3xl font-bold tabular-nums" id="rest-time">0:00</span>
           </div>
-          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-white/25 dark:bg-black/15"><div id="rest-bar" class="h-full rounded-full bg-emerald-400 transition-[width] duration-200"></div></div>
+          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-black/15"><div id="rest-bar" class="h-full rounded-full bg-slate-950 transition-[width] duration-200"></div></div>
         </div>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-adjust" data-sec="-15">−15</button>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-adjust" data-sec="15">+15</button>
-        <button class="rounded-lg bg-white/15 px-2.5 py-2 text-sm font-bold dark:bg-black/10" data-action="rest-skip">Skip</button>
+        <button class="rounded-lg bg-black/10 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="-15">−15</button>
+        <button class="rounded-lg bg-black/10 px-2.5 py-2 text-sm font-bold" data-action="rest-adjust" data-sec="15">+15</button>
+        <button class="rounded-lg bg-black/10 px-2.5 py-2 text-sm font-bold" data-action="rest-skip">Skip</button>
       </div>
     </div>
     <div class="mx-auto flex max-w-xl">
@@ -163,10 +165,10 @@
   </nav>
 
   <div id="modal" class="fixed inset-0 z-40 hidden items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center sm:p-4">
-    <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-[28px] bg-slate-50 p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
+    <div id="modal-body" class="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-t-[24px] bg-slate-50 p-5 shadow-xl dark:bg-slate-900 sm:rounded-3xl" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom))"></div>
   </div>
 
-  <button id="update-banner" class="fixed inset-x-0 top-16 z-50 mx-auto hidden w-[calc(100%-2rem)] max-w-md rounded-2xl bg-slate-950 px-4 py-3 dark:bg-slate-100 dark:text-slate-950 text-left text-sm font-semibold text-white shadow-lg" data-action="apply-update">
+  <button id="update-banner" class="fixed inset-x-0 top-16 z-50 mx-auto hidden w-[calc(100%-2rem)] max-w-md rounded-2xl bg-indigo-400 px-4 py-3 text-left text-sm font-semibold text-slate-950 shadow-lg" data-action="apply-update">
     A new version of the app is ready. <span class="underline">Tap to update</span>
   </button>
 
@@ -1289,8 +1291,8 @@ function sparkSvg(vals) {
   const pts = vals.map((v, k) => [round2((k / (vals.length - 1)) * (W - 4) + 2), round2(hi === lo ? H / 2 : H - 3 - ((v - lo) / (hi - lo)) * (H - 6))]);
   const [lx, ly] = pts[pts.length - 1];
   return `<svg viewBox="0 0 ${W} ${H}" class="h-6 w-20 shrink-0 overflow-visible" aria-hidden="true">
-      <polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${lx}" cy="${ly}" r="2.5" fill="#6366f1"/>
+      <polyline points="${pts.map((q) => q.join(',')).join(' ')}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lx}" cy="${ly}" r="2.5" style="fill:var(--accent)"/>
     </svg>`;
 }
 
@@ -2259,7 +2261,7 @@ function bStepHtml(step) {
       <div><span class="label">Time for each session (including warm-up)</span>${bGrid([30, 45, 60, 75, 90].map((m) => bOpt('minutes', m, `${m} min`)).join(''), 5)}</div>`);
     case 'muscles': return bQ('What matters most?', 'Muscles to grow get about 14 hard sets a week, normal about 10, and ones you just want to keep about 6.',
       `<div class="space-y-2">${B_GROUPS.map(([g]) => `<div class="grid grid-cols-[4.75rem_1fr] items-center gap-2"><span class="text-sm font-semibold">${g}</span>
-        <div class="grid grid-cols-3 gap-1">${B_LEVELS.map(([v, l]) => `<button type="button" class="rounded-xl border px-1 py-2 text-xs font-semibold transition ${a.levels[g] === v ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-200 dark:border-slate-800'}" data-b="level" data-g="${g}" data-val="${v}" aria-pressed="${a.levels[g] === v}">${l}</button>`).join('')}</div></div>`).join('')}</div>
+        <div class="grid grid-cols-3 gap-1">${B_LEVELS.map(([v, l]) => `<button type="button" class="rounded-xl border px-1 py-2 text-xs font-semibold transition ${a.levels[g] === v ? 'border-indigo-400 bg-indigo-400 text-slate-950' : 'border-slate-200 dark:border-slate-800'}" data-b="level" data-g="${g}" data-val="${v}" aria-pressed="${a.levels[g] === v}">${l}</button>`).join('')}</div></div>`).join('')}</div>
       <div><span class="label">How often do you want to train legs?</span>${bGrid(bOpt('legDays', 'one', 'One leg day', 'Legs once a week') + bOpt('legDays', 'topup', 'One day + a top-up', 'A few leg sets on another day') + bOpt('legDays', 'two', 'Two leg days', 'Upper / lower style'), 1)}</div>`);
     case 'gym': return bQ('Your gym and style', '',
       `<div><span class="label">Where do you train?</span>${bGrid(bOpt('gym', 'commercial', 'Big gym', 'Machines, cables, plate-loaded') + bOpt('gym', 'small', 'Smaller gym', 'Basic machines and cables') + bOpt('gym', 'home', 'Home', 'Dumbbells and bodyweight'), 3)}</div>
@@ -3817,9 +3819,9 @@ function lineChart(points, ex) {
       <text x="${pl}" y="${H - 6}" font-size="10" class="fill-slate-500 dark:fill-slate-400">${fmtShort(points[0].date)}</text>
       <text x="${W - pr}" y="${H - 6}" font-size="10" text-anchor="end" class="fill-slate-500 dark:fill-slate-400">${fmtShort(points[points.length - 1].date)}</text>
       <line data-cross x1="0" x2="0" y1="${pt}" y2="${H - pb}" class="stroke-slate-400 dark:stroke-slate-500" stroke-width="1" visibility="hidden"/>
-      <path d="${path}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-      ${xy.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#6366f1" class="stroke-white dark:stroke-slate-900" stroke-width="2"/>`).join('')}
-      <circle data-focus r="6" fill="#6366f1" class="stroke-white dark:stroke-slate-900" stroke-width="2" visibility="hidden"/>
+      <path d="${path}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${xy.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4" style="fill:var(--accent)" class="stroke-white dark:stroke-slate-900" stroke-width="2"/>`).join('')}
+      <circle data-focus r="6" style="fill:var(--accent)" class="stroke-white dark:stroke-slate-900" stroke-width="2" visibility="hidden"/>
       <text x="${Math.min(lastP.x, W - pr)}" y="${lastP.y - 10}" text-anchor="end" font-size="11" font-weight="700" class="fill-slate-900 dark:fill-slate-100">${fmt(points[points.length - 1].v)}</text>
     </svg>
     <div data-tip class="pointer-events-none absolute z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"></div>
@@ -3864,7 +3866,7 @@ function exercisesView() {
     </label>`;
 
   let html = `<h2 class="mb-4 text-3xl">Exercise database</h2>
-  <button class="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl bg-indigo-600 px-4 py-3 text-left text-white transition active:scale-[0.99]" data-action="open-library">
+  <button class="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl bg-indigo-400 px-4 py-3 text-left text-slate-950 transition active:scale-[0.99]" data-action="open-library">
     <span><span class="block font-semibold">Browse exercise library</span><span class="text-sm opacity-80">${LIBRARY.length} common exercises, ready to add in one go</span></span>
     <span class="text-2xl">›</span>
   </button>
@@ -4090,7 +4092,7 @@ function libraryModal() {
     <div class="sticky -bottom-5 -mx-5 mt-3 border-t border-slate-200 bg-white px-5 pb-1 pt-3 dark:border-slate-800 dark:bg-slate-900">
       <div class="mb-2 flex items-center justify-between gap-3 text-sm">
         <span class="muted">Machine weight steps</span>
-        <div class="flex gap-1">${[3, 4].map((s) => `<button class="rounded-lg px-3 py-1.5 font-semibold ${lib.step === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800'}" data-action="lib-step" data-step="${s}">${s} kg</button>`).join('')}</div>
+        <div class="flex gap-1">${[3, 4].map((s) => `<button class="rounded-lg px-3 py-1.5 font-semibold ${lib.step === s ? 'bg-indigo-400 text-slate-950' : 'bg-slate-100 dark:bg-slate-800'}" data-action="lib-step" data-step="${s}">${s} kg</button>`).join('')}</div>
       </div>
       <button class="btn-primary w-full" data-action="lib-add" id="lib-add" ${lib.picked.size ? '' : 'disabled'}>${libAddLabel()}</button>
     </div>`;
@@ -4796,7 +4798,7 @@ function mcOutHtml(p) {
 function macroCalcModal() {
   const p = modal.p, people = state.food.calcPeople;
   const n = (key, label, value, attrs = '') => `<label class="block min-w-0"><span class="label">${label}</span><input class="input" type="number" inputmode="decimal" step="any" min="0" data-mc="${key}" value="${value === '' || value == null ? '' : value}" ${attrs}></label>`;
-  const unit = (key, a, b) => `<span class="ml-auto flex overflow-hidden rounded-lg border border-slate-300 text-[11px] font-bold dark:border-slate-700">${[a, b].map((u) => `<button type="button" class="px-2 py-0.5 ${p[key] === u ? 'bg-indigo-600 text-white' : 'muted'}" data-mcu="${key}" data-val="${u}">${u}</button>`).join('')}</span>`;
+  const unit = (key, a, b) => `<span class="ml-auto flex overflow-hidden rounded-lg border border-slate-300 text-[11px] font-bold dark:border-slate-700">${[a, b].map((u) => `<button type="button" class="px-2 py-0.5 ${p[key] === u ? 'bg-indigo-400 text-slate-950' : 'muted'}" data-mcu="${key}" data-val="${u}">${u}</button>`).join('')}</span>`;
   const tIn = round1(p.height / 2.54), tLb = round1(p.weight * 2.20462); // round the total first so 63.5 kg reads 10 st 0 lb
   const ft = p.height ? Math.floor(tIn / 12) : '', inch = p.height ? round1(tIn - ft * 12) : '';
   const st = p.weight ? Math.floor(tLb / 14) : '', lb = p.weight ? round1(tLb - st * 14) : '';
@@ -4906,7 +4908,7 @@ function foodSummary(tot, t) {
       <button class="relative h-32 w-32 shrink-0" data-food="breakdown" data-k="kcal" aria-label="See which foods gave your calories">
         <svg viewBox="0 0 100 100" class="h-full w-full -rotate-90">
           <circle cx="50" cy="50" r="${R}" fill="none" stroke-width="9" class="stroke-slate-200 dark:stroke-slate-800"/>
-          <circle cx="50" cy="50" r="${R}" fill="none" stroke-width="9" stroke-linecap="round" stroke="${left < 0 ? '#f43f5e' : '#6366f1'}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct)}"/>
+          <circle cx="50" cy="50" r="${R}" fill="none" stroke-width="9" stroke-linecap="round" style="stroke:${left < 0 ? '#f43f5e' : 'var(--accent)'}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct)}"/>
         </svg>
         <div class="absolute inset-0 flex flex-col items-center justify-center">
           <span class="text-2xl font-extrabold tabular-nums">${fmtKg(Math.abs(left))}</span>
@@ -4944,7 +4946,7 @@ function breakdownModal() {
   const tot = dayTotals(date)[k] || 0;
   const target = targetsFor(date)?.[k];
   const rows = nutrientBreakdown(date, k);
-  const tabs = NUTRIENTS.map(([key, l]) => `<button class="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${key === k ? 'bg-indigo-500 text-white' : 'bg-slate-100 dark:bg-slate-800'}" data-food="breakdown" data-k="${key}" ${key === k ? 'data-sel' : ''}>${l}</button>`).join('');
+  const tabs = NUTRIENTS.map(([key, l]) => `<button class="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold ${key === k ? 'bg-indigo-400 text-slate-950' : 'bg-slate-100 dark:bg-slate-800'}" data-food="breakdown" data-k="${key}" ${key === k ? 'data-sel' : ''}>${l}</button>`).join('');
   const aim = target == null ? '' : kind === 'max' ? ` · max ${fmt(target)} ${unit}` : kind === 'min' ? ` · aim ${fmt(target)}+ ${unit}` : ` of ${k === 'kcal' ? fmtKg(target) : target} ${unit}`;
   const list = rows.length ? rows.map((r) => {
     const share = tot > 0 ? Math.round((r.v / tot) * 100) : 0;
@@ -5062,7 +5064,7 @@ function weightChart(pts, hide = state.food.prefs.trendOnly) {
       <text x="${W - pr}" y="${H - 6}" font-size="10" text-anchor="end" class="fill-slate-500 dark:fill-slate-400">${fmtShort(pts[pts.length - 1].date)}</text>
       <line data-cross x1="0" x2="0" y1="${pt}" y2="${H - pb}" class="stroke-slate-400 dark:stroke-slate-500" stroke-width="1" visibility="hidden"/>
       ${hide ? '' : pts.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.kg)}" r="3" class="fill-slate-400 dark:fill-slate-500"/>`).join('')}
-      <path d="${pts.map((p, k) => `${k ? 'L' : 'M'}${x(p.date)},${y(p.trend)}`).join(' ')}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${pts.map((p, k) => `${k ? 'L' : 'M'}${x(p.date)},${y(p.trend)}`).join(' ')}" fill="none" style="stroke:var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     </svg>
   </div>`;
 }

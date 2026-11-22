@@ -90,36 +90,35 @@ No test suite is committed. Test with Playwright (preinstalled; `require('playwr
   to test the auto rest timer.
 - Check at 390px wide (iPhone) in dark mode; screenshot and look.
 
-## Look ("Calm", chosen Nov 2026; replaced "Plate")
+## Look ("Volt", chosen 22 Nov 2026; replaced "Calm", which replaced "Plate")
 
-The owner asked for a cleaner wearable-app look (Oura, Ultrahuman, Whoop) with
-more focus on Garmin. From 7 trials + 4 blends (scratch files, not committed)
-they picked **"K · Day & night"**: a blend of Calm (Oura navy), Daylight (warm
-off-white cards), Aurora (soft glow) and Contributors (score + "what's driving
-it" + week chart), applied to the **whole app**.
-- **Light/dark follows the iPhone** (`prefers-color-scheme`) unless picked:
-  the header moon cycles Auto → Light → Dark (`pot.theme` = 'light' | 'dark' |
-  missing; `window.applyTheme()` in the head script also sets theme-color).
-- Palette is still done by remapping Tailwind colours in `tailwind.config`,
-  so keep using the same class names: `slate` = neutrals (light mode uses
-  50–500 warm off-white/greys, dark mode 400–950 deep navy, bg #0c0f17),
-  `indigo` = soft periwinkle accent (links, calories), `emerald` = calm green
-  ("good", protein), `amber` = soft amber, `violet` = sleep purple, `white` =
-  pure white. Rose stays the default (danger/over).
-- **Inter** everywhere (Google Fonts, cached by `sw.js`); big numbers are
-  `font-light tracking-tight`. `.display` is now light weight, not Anton;
-  h1/h2 semibold. `.eyebrow` = small muted uppercase label.
-- Cards are translucent (`.card`: rounded-3xl, white/80 or white/5, blur) over
-  a fixed `.aurora` glow (green + lavender radial gradients) behind the top
-  of every screen. `.btn-primary` is ink (black in light, off-white in dark),
-  pill-shaped. `.tap` = pressable card.
-- Header: small green→periwinkle gradient badge + "Overload" + programme
-  week (`#hdr-sub`). Home Screen icon (Nov 2026, matches the badge): navy
-  background with a soft green/lavender glow and a green→periwinkle disc
-  with a navy dumbbell (PIL; maskable version drawn at 0.78 scale). iOS only
-  picks up a new icon after removing and re-adding the app (back up first).
-- Routine plate colours (`PLATE_COLORS`) still exist but now map to the new
-  palette; the 12-week strip and month calendar are unchanged in layout.
+The owner picked **Volt** from six Train-tab trials (Ink, Volt, Iron, Logbook,
+Terminal, Ocean; scratch files only), applied to every screen, keeping the
+light/dark switch.
+- **Light/dark follows the iPhone** unless picked: the header moon cycles
+  Auto → Light → Dark (`pot.theme` = 'light' | 'dark' | missing;
+  `window.applyTheme()` in the head script also sets theme-color #050505 /
+  #f4f5f0). The header sliders button opens the tabs on/off sheet.
+- Palette by remapping Tailwind colours in `tailwind.config` (keep using the
+  same class names): `slate` = neutrals (light 50–500 off-white/greys, dark
+  400–950 near-black, bg #050505, cards slate-900 #131313); `indigo` = **lime**:
+  400 #d4ff3a is the neon (buttons, rest timer, today ring; always with
+  `text-slate-950` on it), 600/700 are olive for readable text on light
+  (`text-indigo-600 dark:text-indigo-400`). White-on-indigo was swapped to
+  black-on-lime everywhere. `emerald` = fresh green (done sets, "good"),
+  `amber`, `violet` unchanged roles; rose = danger/over. Hand-written SVG
+  charts use `style="stroke/fill: var(--accent)"` (olive light, lime dark).
+- **Fonts**: Barlow Condensed (500–800) for h1/h2, `.display` numbers and
+  `.btn-primary` (uppercase); Inter for body. Both from Google Fonts, cached by
+  `sw.js` (the URL in `LIBS` must match the `<link>` exactly).
+- Flat cards (`.card`/`.tile`: rounded-2xl, white or #131313, hairline
+  border, no blur); the `.aurora` glow is kept in CSS but hidden.
+- Header: lime rounded-square badge with a black dumbbell + "OVERLOAD".
+  Home Screen icon is still the Calm one (green/lavender disc); a lime icon
+  wasn't made yet. Changing it needs remove + re-add (back up first).
+- Testing tip: Google Fonts are blocked in the sandbox; `npm pack
+  @fontsource/barlow-condensed @fontsource/inter` and inject @font-face data
+  URLs to see real type in screenshots.
 
 ## Today dashboard (Nov 2026)
 
