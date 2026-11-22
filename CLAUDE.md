@@ -114,8 +114,10 @@ light/dark switch.
 - Flat cards (`.card`/`.tile`: rounded-2xl, white or #131313, hairline
   border, no blur); the `.aurora` glow is kept in CSS but hidden.
 - Header: lime rounded-square badge with a black dumbbell + "OVERLOAD".
-  Home Screen icon is still the Calm one (green/lavender disc); a lime icon
-  wasn't made yet. Changing it needs remove + re-add (back up first).
+  Home Screen icon (22 Nov 2026, owner picked "D" of four): black square,
+  "OV" in lime Barlow Condensed 800 with a small off-white dumbbell under it
+  (PIL; maskable drawn at 0.78 scale; icon links carry `?v=volt`). Changing
+  it needs remove + re-add (back up first).
 - Testing tip: Google Fonts are blocked in the sandbox; `npm pack
   @fontsource/barlow-condensed @fontsource/inter` and inject @font-face data
   URLs to see real type in screenshots.
