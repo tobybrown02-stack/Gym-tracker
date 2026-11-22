@@ -108,9 +108,14 @@
           <p class="mt-1 text-[11px] font-medium leading-tight muted" id="hdr-sub">Train with a plan</p>
         </div>
       </div>
+      <div class="flex items-center">
+      <button class="icon-btn" data-action="tabs-open" aria-label="Choose tabs">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
       <button class="icon-btn" data-action="toggle-theme" aria-label="Toggle light/dark mode">
         <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
+      </div>
     </div>
   </header>
 
@@ -736,7 +741,7 @@ function seedState() {
     history: [],
     routines: [{ id: uid(), name: 'Full Body', exerciseIds: exercises.map((e) => e.id) }],
     schedule: { weekly: {}, overrides: {} },
-    settings: { barWeight: 20, progression: 'rpe' },
+    settings: { barWeight: 20, progression: 'rpe', tabs: {} },
     food: emptyFood(),
     body: { measures: {}, journey: null },
     habits: { custom: [], log: {} }, coach: null,
@@ -772,7 +777,7 @@ function migrate(d) {
     history: d.history || [],
     routines: (d.routines || []).map((r) => ({ sets: {}, ...r })),
     schedule: { weekly: d.schedule?.weekly || {}, overrides: d.schedule?.overrides || {} },
-    settings: { barWeight: 20, progression: 'rpe', ...(d.settings || {}) },
+    settings: { barWeight: 20, progression: 'rpe', tabs: {}, ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     body: { measures: {}, journey: null, ...(d.body || {}) },
     habits: { custom: [], log: {}, ...(d.habits || {}) }, coach: d.coach || null,
@@ -952,13 +957,30 @@ const ICON_X = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="cur
 const ICON_EDIT = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
+const TAB_NAMES = [['home', 'Today', 'Readiness, sleep, habits and exercise from your Garmin'], ['today', 'Train', 'Today’s workout, week calendar and logging'], ['food', 'Food', 'Calories, macros, weight and food logging'], ['plan', 'Plan', 'Routines, weekly schedule, 12-week programme'], ['stats', 'Stats', 'Month calendar, progress charts, body'], ['exercises', 'Exercises', 'Your exercise list and library'], ['history', 'History', 'Past workouts, backups and settings']];
+const tabOn = (v) => v === 'today' || state.settings.tabs?.[v] !== false;
+const tabVisible = (v) => tabOn(v) && (v !== 'home' || garminOn());
+
+function tabsModal() {
+  return `${modalHead('Tabs')}
+    <p class="text-sm muted">Turn off what you don’t use. Nothing is deleted: turn a tab back on and everything is there. Train always stays on.</p>
+    <div class="mt-3 divide-y divide-black/5 dark:divide-white/[0.06]">${TAB_NAMES.map(([v, name, desc]) => {
+      const on = tabOn(v), locked = v === 'today';
+      return `<button class="flex w-full items-center justify-between gap-3 py-3 text-left ${locked ? 'opacity-60' : ''}" ${locked ? 'disabled' : `data-action="tab-toggle" data-v="${v}"`}>
+        <span class="min-w-0"><span class="block font-medium">${name}</span><span class="block text-xs muted">${desc}${v === 'home' && !garminOn() ? ' (needs Garmin set up)' : ''}</span></span>
+        <span class="relative h-7 w-12 shrink-0 rounded-full transition ${on ? 'bg-emerald-500' : 'bg-black/15 dark:bg-white/15'}"><span class="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}"></span></span>
+      </button>`;
+    }).join('')}</div>
+    ${!tabOn('history') ? '<p class="mt-3 text-xs muted">Backups and settings live in History: turn it back on when you need them. Back up first if you’ll be away from it for a while.</p>' : ''}`;
+}
+
 function render() {
   const pw = state.programme && progWeek(todayISO());
   document.getElementById('hdr-sub').textContent = pw ? `Week ${pw} of ${PROG_WEEKS} · ${pw % 4 ? BLOCKS[blockOf(pw)].name : 'Deload'}` : 'Train with a plan';
-  // The Today dashboard is built on wearable data: only show it once Garmin is set up.
-  const hasToday = garminOn();
-  document.querySelector('.nav-btn[data-view="home"]')?.classList.toggle('hidden', !hasToday);
-  if (view === 'home' && !hasToday) view = 'today';
+  // Tabs can be switched off (header sliders button); Train always stays. The Today
+  // dashboard is built on wearable data, so it also needs Garmin set up.
+  document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('hidden', !tabVisible(b.dataset.view)));
+  if (!tabVisible(view) && view !== 'builder') view = 'today';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   const views = { home: homeView, today: todayView, food: foodView, plan: planView, stats: statsView, exercises: exercisesView, history: historyView, builder: builderView };
   document.getElementById('view').innerHTML = (view === 'home' || view === 'today' || view === 'food' ? noticesHtml() : '') + views[view]();
@@ -1004,7 +1026,7 @@ function todayTiles(today) {
   const ws = weekStart(today), tiles = [];
   const series = weightSeries(), last = series[series.length - 1];
   const goal = state.programme?.goalKg ?? state.body.journey?.goal;
-  if (last) {
+  if (last && tabOn('food')) {
     const start = state.body.journey?.kg ?? series[0].kg;
     const pct = goal && start > goal ? Math.max(2, Math.min(100, ((start - last.trend) / (start - goal)) * 100)) : null;
     tiles.push(`<p class="label">Weight trend</p><p class="display text-3xl leading-none tabular-nums">${fmt(round1(last.trend))}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">kg</span></p>
@@ -1014,7 +1036,7 @@ function todayTiles(today) {
   const trained = new Set(state.history.filter((h) => h.date >= ws && h.date <= addDays(ws, 6)).map((h) => h.date)).size;
   if (planned || trained) tiles.push(`<p class="label">This week</p><p class="display text-3xl leading-none tabular-nums">${trained}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">/ ${planned} sessions</span></p>
     <div class="mt-2 flex gap-1">${DAYS.map((_, i) => { const d = addDays(ws, i), r = plannedRoutine(d), st = dayStatus(d); return r || st === 'done' ? `<span class="h-3 w-3 rounded-full ${st === 'done' ? 'bg-emerald-500' : r ? plateColor(r) + ' opacity-35' : ''}"></span>` : ''; }).join('')}</div>`);
-  const t = targetsFor(today);
+  const t = tabOn('food') && targetsFor(today);
   if (t) {
     const left = t.kcal - dayTotals(today).kcal, pLeft = t.protein - dayTotals(today).protein;
     tiles.push(`<p class="label">Calories left</p><p class="display text-3xl leading-none tabular-nums ${left < 0 ? 'text-rose-500' : ''}">${fmtKg(Math.abs(left))}<span class="ml-1 font-sans text-sm font-semibold normal-case muted">${left < 0 ? 'kcal over' : 'kcal'}</span></p>
@@ -1086,7 +1108,7 @@ function todayView() {
     }
     html += `</section>`;
     html += todayTiles(today);
-    html += readinessHtml(today);
+    if (tabOn('home')) html += readinessHtml(today);
     const lastWeek = addDays(weekStart(today), -7);
     if (dow(today) <= 1 && !snoozed(`recap-${lastWeek}`)) html += recapHtml(lastWeek, true); // Monday & Tuesday
 
@@ -4040,7 +4062,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, metric: metricModal, claude: claudeModal, garmin: garminModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, metric: metricModal, claude: claudeModal, tabs: tabsModal, garmin: garminModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   document.querySelector('#modal-body [data-sel]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   box.classList.remove('hidden'); box.classList.add('flex');
@@ -6044,6 +6066,8 @@ document.addEventListener('click', (e) => {
     case 'goto-exercises': view = 'exercises'; render(); return;
     case 'goto-today': view = 'today'; render(); return;
     case 'metric': modal = { type: 'metric', k: btn.dataset.k }; renderModal(); return;
+    case 'tabs-open': modal = { type: 'tabs' }; renderModal(); return;
+    case 'tab-toggle': state.settings.tabs = { ...(state.settings.tabs || {}), [btn.dataset.v]: !tabOn(btn.dataset.v) }; saveState(); render(); return;
     case 'habit-day': habitDay = btn.dataset.date === todayISO() ? null : btn.dataset.date; render(); return;
     case 'habit-toggle': {
       const d = btn.dataset.date, list = new Set(habitsOn(d));

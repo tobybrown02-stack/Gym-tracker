@@ -154,6 +154,19 @@ switches to Train.
 - Uses today's Garmin day, or yesterday's if last night hasn't synced (says so).
 - Selected tab chips in modals scroll into view (`data-sel`).
 
+## Tabs on/off (Nov 2026)
+
+The owner felt the app was getting heavy and is trying the **Vitalstat** app
+for recovery, food and everything else "for the time being"; they want just
+workouts, plan and calendar. Header sliders button → `tabsModal()`: switch
+any tab off (`state.settings.tabs = {view: false}`; missing = on; Train is
+always on). `tabVisible(v)` = on (+ Garmin set up for Today); `render()`
+hides nav buttons and falls back to Train. Hidden tabs keep their data. With
+Food off the Train tab drops the weight/calorie tiles; with Today off it drops
+the readiness card. The owner planned Train + Plan + History only. They were
+advised to pause new features for 2–3 weeks, then trim what they don't use;
+don't push more features unless asked.
+
 ## Vitalstat-style features (Nov 2026)
 
 The owner likes the Vitalstat app and asked for all four of its headline
