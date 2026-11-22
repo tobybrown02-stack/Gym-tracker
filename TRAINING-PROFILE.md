@@ -1,7 +1,7 @@
 # Training profile
 
 A summary of my training, food and recovery set-up, for chats about training.
-Last updated 21 Nov 2026. My logged workouts and food are on my phone and
+Last updated 22 Nov 2026. My logged workouts and food are on my phone and
 aren't in this file; I'll share screenshots or numbers when they're needed.
 
 ## About me
@@ -125,3 +125,21 @@ block, weeks 1–3 build and week 4 is a deload.
 - I also own an Apple Watch S10 and a Whoop. The Whoop
   subscription ends Mar 2027 and I've been advised not to renew.
 - I don't have a Garmin scale. I weigh in using my app.
+
+## Sending things back to my app
+
+My app has an **Ask Claude** button that copies a summary of my day or week
+(readiness, exertion, habits, food so far, weight trend). When I ask you to
+log food (from a photo or a description) or give me a coaching note, end your
+reply with a block exactly like this so my app can import it:
+
+```
+OVERLOAD
+food | <breakfast/lunch/dinner/snacks> | <food name> | <grams> | <kcal> | <protein g> | <carbs g> | <fat g>
+note | <one short coaching note for my app's Today tab>
+END
+```
+
+One "food" line per item, numbers only. Estimate portions from photos as
+best you can and say if you're unsure.
+

@@ -154,6 +154,47 @@ switches to Train.
 - Uses today's Garmin day, or yesterday's if last night hasn't synced (says so).
 - Selected tab chips in modals scroll into view (`data-sel`).
 
+## Vitalstat-style features (Nov 2026)
+
+The owner likes the Vitalstat app and asked for all four of its headline
+features: photo meal logging + AI coach, wearable dashboard (= Today tab),
+habit tracking, body composition / exertion. AI must stay free, so:
+- **Claude bridge** (`claudeModal`, `modal = {type:'claude'}`; "Ask Claude" card
+  on Today, button on the Food tab): **Copy today / this week**
+  (`claudeSummary(scope)`: readiness parts, yesterday's exertion and habits,
+  weight trend, body fat, today's plan, food vs targets or a 7-day table, then
+  `CLAUDE_FORMAT` instructions and "My question:"). The owner pastes it into
+  their Claude training project (Claude Pro, no API cost), adds a meal photo or
+  question; Claude ends with an `OVERLOAD … END` block (`food | meal | name |
+  g | kcal | P | C | F`, `note | text`). **Paste Claude's reply** reads the
+  clipboard (or a textarea), `parseClaude()` tolerates code fences/units, shows
+  the foods with ticks first (owner wants preview before saving), adds them as
+  quick-add style entries (`foodId: null`, `src: 'claude'`, "(~450 g)" in the
+  name) and saves the note to `state.coach = {text, date}` (shown on Today for
+  2 days, dismissable). In-app AI via the Claude API (pennies, needs a card)
+  or Gemini's free tier were offered and not chosen.
+- **Habits** (`state.habits = {custom: [{id,name}], log: {date: [ids]}}`;
+  `HABITS` defaults: alcohol, caffeine after 2pm, late big meal, stressful
+  day, screens in bed, nap, sauna, travel; "+ Add" for custom): ticked on the
+  Today tab for today or yesterday (`habitDay`). A day counts once anything
+  was ticked or unticked (log entry exists, even empty). `habitImpact()`: per
+  habit, next-morning readiness / sleep / resting HR on days with vs without
+  (last 90 days, needs 3+ of each) → "What affects your recovery".
+- **Exertion 0–100** (`exertion(date)`, Today card + metric tab): Banister
+  TRIMP of the day's watch activities (HR reserve from resting HR and max HR =
+  max(208 − 0.7 × age, highest seen)) + steps (10k ≈ 18), score = 100 × (1 −
+  e^(−load/120)); <30 light, 30–59 moderate, 60+ hard. Strength sessions read
+  moderate (HR drops between sets): explained in the modal. **Display only**:
+  the owner chose to keep the fixed training-day calorie split rather than
+  exertion-based "adaptive nutrition" (offered with a worked example).
+- **Body composition** (Stats, `bodyCompCard()`, `bodyComp()`): body fat %
+  from a smart-scale value logged in Measurements (`bf`, new field) or the US
+  Navy tape estimate from waist + neck (+ hips for women) + profile height;
+  fat / lean kg from the weight trend on that date; change since the first
+  reading. Measures modal labels `bf` as % (`mUnit`).
+- A Vitalstat MCP connection exists in Claude sessions; Vitalstat itself isn't
+  connected to the app.
+
 ## How the app works
 
 Tabs: Today (dashboard), Train (the old Workout tab), Food, Plan, Stats, Exercises, History (History also holds

@@ -739,6 +739,7 @@ function seedState() {
     settings: { barWeight: 20, progression: 'rpe' },
     food: emptyFood(),
     body: { measures: {}, journey: null },
+    habits: { custom: [], log: {} }, coach: null,
     programme: null,
     pastProgrammes: [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null },
@@ -774,6 +775,7 @@ function migrate(d) {
     settings: { barWeight: 20, progression: 'rpe', ...(d.settings || {}) },
     food: { ...emptyFood(), ...(d.food || {}), prefs: { ...emptyFood().prefs, ...(d.food?.prefs || {}) } },
     body: { measures: {}, journey: null, ...(d.body || {}) },
+    habits: { custom: [], log: {}, ...(d.habits || {}) }, coach: d.coach || null,
     programme: d.programme ? { checkins: [], goalKg: null, main: null, ...d.programme } : null,
     pastProgrammes: d.pastProgrammes || [],
     planner: { answers: null, plan: null, step: 'intro', main: null, savedAt: null, ...(d.planner || {}) },
@@ -797,6 +799,7 @@ function saveState() {
 
 let state = loadState();
 let view = 'home';
+let habitDay = null;     // Today tab habits: which day is being ticked (null = today)
 let editingId = null;      // exercise being edited
 let routineEdit = null;    // { id, name, exerciseIds } while editing a routine
 let modal = null;          // { type: 'day' | 'summary', ... }
@@ -2917,10 +2920,14 @@ function homeView() {
   const today = todayISO(), hour = new Date().getHours();
   const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   let html = `<section class="mb-2 mt-1"><p class="text-sm muted">${fmtDay(today)}</p><h2 class="mt-1 text-[28px] font-light leading-tight tracking-tight">${hello}</h2></section>`;
+  html += coachNoteHtml();
   html += homeReadiness(today);
+  html += exertionCard(today);
+  html += habitCard(habitDay || today);
   html += homeTraining(today);
   html += homeFood(today);
   html += homeStepsWeight(today);
+  html += askClaudeCard();
   if (garminOn() && state.garmin.lastSync) html += `<p class="mt-4 text-center text-[11px] muted">Garmin data from ${new Date(state.garmin.lastSync).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · <button class="link text-[11px]" data-action="garmin-sync">Check now</button></p>`;
   return html;
 }
@@ -3048,9 +3055,243 @@ function homeStepsWeight(today) {
   return `<section class="mt-3 grid ${tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-1'} gap-3">${tiles.join('')}</section>`;
 }
 
+// ----- Habits: what you did, and what it does to your recovery -----
+const HABITS = [['alcohol', 'Alcohol'], ['caffeine', 'Caffeine after 2pm'], ['latemeal', 'Late big meal'], ['stress', 'Stressful day'], ['screens', 'Screens in bed'], ['nap', 'Nap'], ['sauna', 'Sauna'], ['travel', 'Travel']];
+const habitDefs = () => [...HABITS, ...(state.habits.custom || []).map((c) => [c.id, c.name])];
+const habitsOn = (d) => state.habits.log[d] || [];
+
+/**
+ * For each habit: next-morning readiness, sleep and resting HR after days you
+ * did it vs days you didn't (last 90 days). Needs 3+ of each to say anything.
+ */
+function habitImpact() {
+  const today = todayISO(), out = [];
+  const days = lastDays(90, addDays(today, -1)).filter((d) => readinessScore(addDays(d, 1)));
+  const logged = days.filter((d) => state.habits.log[d]); // only days where habits were filled in count
+  for (const [id, name] of habitDefs()) {
+    const yes = logged.filter((d) => habitsOn(d).includes(id)), no = logged.filter((d) => !habitsOn(d).includes(id));
+    if (yes.length < 3 || no.length < 3) { if (yes.length) out.push({ id, name, n: yes.length, need: true }); continue; }
+    const avg = (arr, f) => mean(arr.map(f).filter((v) => v != null));
+    const next = (d) => addDays(d, 1);
+    const r = (arr) => avg(arr, (d) => readinessScore(next(d))?.score), s = (arr) => avg(arr, (d) => gDay(next(d)).sleepH), h = (arr) => avg(arr, (d) => gDay(next(d)).rhr);
+    out.push({ id, name, n: yes.length, ready: r(yes) - r(no), sleep: s(yes) != null && s(no) != null ? (s(yes) - s(no)) * 60 : null, rhr: h(yes) != null && h(no) != null ? h(yes) - h(no) : null });
+  }
+  return out.sort((a, b) => (a.need - b.need) || Math.abs(b.ready || 0) - Math.abs(a.ready || 0));
+}
+
+function habitCard(date) {
+  const on = habitsOn(date), today = todayISO();
+  const imp = habitImpact().filter((x) => !x.need);
+  return `<section class="card mt-3">
+    <div class="flex items-center justify-between gap-2"><p class="eyebrow">Habits</p>
+      <div class="flex rounded-full bg-black/5 p-0.5 text-xs dark:bg-white/[0.07]">${[[addDays(today, -1), 'Yesterday'], [today, 'Today']].map(([d, l]) => `<button class="rounded-full px-2.5 py-1 font-medium ${d === date ? 'bg-white shadow-sm dark:bg-white/15' : 'muted'}" data-action="habit-day" data-date="${d}">${l}</button>`).join('')}</div></div>
+    <p class="mt-1 text-xs muted">Tick what applies. Over time the app shows how each one changes your sleep and next-day readiness.</p>
+    <div class="mt-3 flex flex-wrap gap-1.5">${habitDefs().map(([id, name]) => `<button class="rounded-full border px-3 py-1.5 text-sm font-medium transition ${on.includes(id) ? 'border-transparent bg-slate-950 text-white dark:bg-slate-100 dark:text-slate-950' : 'border-black/10 dark:border-white/10'}" data-action="habit-toggle" data-date="${date}" data-id="${id}">${esc(name)}</button>`).join('')}
+      <button class="rounded-full border border-dashed border-black/15 px-3 py-1.5 text-sm muted dark:border-white/15" data-action="habit-add">+ Add</button></div>
+    ${imp.length ? `<p class="eyebrow mt-4">What affects your recovery</p>
+      <ul class="mt-1 divide-y divide-black/5 text-sm dark:divide-white/[0.06]">${imp.slice(0, 4).map((x) => `<li class="py-2"><div class="flex items-baseline justify-between gap-2"><span class="font-medium">${esc(x.name)}</span><span class="text-xs muted">${x.n} times</span></div>
+        <p class="text-xs muted">Next morning: readiness <b class="${x.ready < -3 ? 'text-rose-600 dark:text-rose-400' : x.ready > 3 ? 'text-emerald-600 dark:text-emerald-300' : ''}">${x.ready >= 0 ? '+' : '−'}${Math.abs(Math.round(x.ready))}</b>${x.sleep != null ? ` · sleep ${x.sleep >= 0 ? '+' : '−'}${Math.abs(Math.round(x.sleep))} min` : ''}${x.rhr != null ? ` · resting HR ${x.rhr >= 0 ? '+' : '−'}${fmt(Math.abs(round1(x.rhr)))}` : ''}</p></li>`).join('')}</ul>`
+      : '<p class="mt-3 text-[11px] muted">Results appear once a habit has 3+ days with it and 3+ days without (with Garmin data the next morning).</p>'}
+  </section>`;
+}
+
+// ----- Exertion: how hard the day was (0–100) -----
+/**
+ * From the watch: heart-rate training load (Banister TRIMP) of the day's
+ * activities, using your resting HR and max HR (age-based, or the highest
+ * the watch has seen), plus a little for steps. 100 × (1 − e^(−load/120)).
+ */
+function exertion(date) {
+  const acts = (state.garmin.acts || []).filter((a) => a.date === date && a.mins);
+  const steps = gDay(date).steps;
+  if (!acts.length && steps == null) return null;
+  const rhr = gDay(date).rhr ?? median(gSeries('rhr', date, 28)) ?? 60;
+  const age = state.food.profile?.age, seen = Math.max(0, ...(state.garmin.acts || []).map((a) => a.maxHR || 0));
+  const hrMax = Math.max(age ? 208 - 0.7 * age : 185, seen);
+  const parts = acts.map((a) => {
+    const hrr = a.avgHR ? Math.max(0, Math.min(1, (a.avgHR - rhr) / (hrMax - rhr))) : 0.35;
+    return { name: a.name || a.type.replace(/_/g, ' '), mins: a.mins, avgHR: a.avgHR, load: a.mins * hrr * 0.64 * Math.exp(1.92 * hrr) };
+  });
+  const stepLoad = steps ? (steps / 10000) * 18 : 0;
+  const load = sum(parts.map((p) => p.load)) + stepLoad;
+  const score = Math.round(100 * (1 - Math.exp(-load / 120)));
+  return { score, parts, steps, stepLoad, load, level: score >= 60 ? 'Hard' : score >= 30 ? 'Moderate' : 'Light' };
+}
+const EX_TONE = { Hard: 'text-rose-500 dark:text-rose-400', Moderate: 'text-amber-500 dark:text-amber-300', Light: 'text-indigo-500 dark:text-indigo-400' };
+
+function exertionCard(today) {
+  const days = lastDays(7, today).map((d) => ({ d, e: exertion(d) }));
+  const cur = days[6].e || days[5].e;
+  if (!cur) return '';
+  const isToday = !!days[6].e;
+  return `<section class="card tap mt-3" data-action="metric" data-k="exertion">
+    <div class="flex items-baseline justify-between"><p class="eyebrow">Exertion${isToday ? ' today' : ' yesterday'}</p><span class="text-xs muted">tap for more</span></div>
+    <div class="mt-2 flex items-center gap-4">
+      <div class="relative h-[64px] w-[64px] shrink-0">${ringSvg(64, 6, cur.score / 100, EX_TONE[cur.level])}<span class="absolute inset-0 grid place-items-center text-lg font-light tabular-nums">${cur.score}</span></div>
+      <div class="min-w-0 flex-1"><p class="text-xl font-light tracking-tight ${EX_TONE[cur.level]}">${cur.level}</p>
+        <p class="truncate text-[13px] muted">${cur.parts.length ? cur.parts.map((p) => `${esc(p.name)} ${p.mins} min`).join(' · ') : 'No workouts'}${cur.steps ? ` · ${fmtKg(cur.steps)} steps` : ''}</p></div>
+      <div class="flex h-10 items-end gap-1">${days.map((x, i) => `<span class="w-2 rounded-sm bg-current ${x.e ? EX_TONE[x.e.level] : 'text-black/10 dark:text-white/10'}" style="height:${x.e ? Math.max(4, x.e.score * 0.4) : 4}px;opacity:${i === 6 ? 1 : 0.5}"></span>`).join('')}</div>
+    </div>
+  </section>`;
+}
+
+// ----- Body composition -----
+/**
+ * Body fat %: a smart-scale reading if you logged one (Measurements → Body fat),
+ * else the US Navy tape estimate from waist + neck (+ hips for women) and height.
+ * Fat and lean mass use the weight trend on that date.
+ */
+function bodyFatOn(date) {
+  const m = state.body.measures[date] || {}, p = state.food.profile;
+  if (m.bf > 0) return { bf: m.bf, how: 'scale' };
+  if (!p?.height || !(m.waist > 0) || !(m.neck > 0)) return null;
+  const lg = Math.log10;
+  let bf;
+  if (p.sex === 'female') { if (!(m.hips > 0)) return null; bf = 495 / (1.29579 - 0.35004 * lg(m.waist + m.hips - m.neck) + 0.221 * lg(p.height)) - 450; }
+  else { if (m.waist <= m.neck) return null; bf = 495 / (1.0324 - 0.19077 * lg(m.waist - m.neck) + 0.15456 * lg(p.height)) - 450; }
+  return bf > 2 && bf < 60 ? { bf: round1(bf), how: 'tape' } : null;
+}
+function bodyComp() {
+  const series = weightSeries();
+  const trendOn = (d) => { const p = series.filter((x) => x.date <= d).pop(); return p ? p.trend : null; };
+  return Object.keys(state.body.measures).sort().map((d) => { const b = bodyFatOn(d), w = trendOn(d); return b && w ? { date: d, ...b, kg: w, fat: (w * b.bf) / 100, lean: w * (1 - b.bf / 100) } : null; }).filter(Boolean);
+}
+
+function bodyCompCard() {
+  const s = bodyComp();
+  if (!s.length) {
+    return `<section class="card mb-4"><h3 class="font-semibold">Body composition</h3>
+      <p class="mt-1 text-sm muted">Log your <b>waist and neck</b> in Body measurements (or a <b>body fat %</b> from a smart scale) and the app estimates your body fat, fat mass and lean mass, so you can see you’re losing fat, not muscle.</p>
+      <button class="btn-ghost mt-3 w-full py-2.5" data-action="open-measures">Log measurements</button></section>`;
+  }
+  const last = s[s.length - 1], first = s[0];
+  const ch = (v, unit = 'kg') => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmt(Math.abs(round1(v)))} ${unit}`;
+  return `<section class="card mb-4">
+    <div class="flex items-baseline justify-between"><h3 class="font-semibold">Body composition</h3><span class="text-xs muted">${fmtShort(last.date)} · ${last.how === 'scale' ? 'smart scale' : 'tape estimate'}</span></div>
+    <div class="mt-3 grid grid-cols-3 gap-2 text-center">
+      <div class="tile"><p class="eyebrow">Body fat</p><p class="mt-1 text-2xl font-light tabular-nums">${fmt(last.bf)}<span class="text-sm muted">%</span></p></div>
+      <div class="tile"><p class="eyebrow">Fat</p><p class="mt-1 text-2xl font-light tabular-nums">${fmt(round1(last.fat))}<span class="text-sm muted"> kg</span></p></div>
+      <div class="tile"><p class="eyebrow">Lean</p><p class="mt-1 text-2xl font-light tabular-nums">${fmt(round1(last.lean))}<span class="text-sm muted"> kg</span></p></div>
+    </div>
+    ${s.length > 1 ? `<p class="mt-3 text-sm">Since ${fmtShort(first.date)}: fat <b class="${last.fat <= first.fat ? 'text-emerald-600 dark:text-emerald-300' : ''}">${ch(last.fat - first.fat)}</b>, lean <b class="${last.lean >= first.lean - 0.5 ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300'}">${ch(last.lean - first.lean)}</b>${last.lean < first.lean - 1 ? '. Lean mass dropping: keep protein up and lifting heavy.' : '.'}</p>` : '<p class="mt-3 text-sm muted">Measure again in 2–4 weeks to see the change.</p>'}
+    <p class="mt-2 text-[11px] leading-relaxed muted">Estimates are ±3–4% for any one reading (tape and smart scales alike); the trend over months is what to watch. Measure at the same time of day, tape level and snug. “Lean” is everything that isn’t fat: muscle, water, organs, bone.</p>
+    <button class="btn-ghost mt-3 w-full py-2.5" data-action="open-measures">Log measurements</button>
+  </section>`;
+}
+
+// ----- Claude bridge: copy a summary out, paste food and notes back in -----
+const CLAUDE_FORMAT = `When I ask you to log food (from a photo or a description) or give me a coaching note, end your reply with a block exactly like this so my app can import it:
+OVERLOAD
+food | <breakfast/lunch/dinner/snacks> | <food name> | <grams> | <kcal> | <protein g> | <carbs g> | <fat g>
+note | <one short coaching note for my app's Today tab>
+END
+One "food" line per item. Numbers only, no units. Leave out lines you don't need.`;
+
+function claudeSummary(scope) {
+  const today = todayISO(), L = [];
+  L.push(`My Overload app · ${fmtDay(today)}${state.programme && progWeek(today) ? ` · programme week ${progWeek(today)} of ${PROG_WEEKS}${isDeloadWeek(today) ? ' (deload)' : ''}` : ''}`);
+  const got = garminOn() && latestScoreDay();
+  if (got) {
+    const t = gDay(got.date);
+    L.push(`Readiness ${got.r.score}/100 (${LEVEL_TEXT[scoreLevel(got.r.score)].toLowerCase()})${got.date !== today ? ', from yesterday' : ''}: ${got.r.parts.map((p) => `${p.label} ${p.text}`).join(', ')}${t.hrv == null ? ', HRV still learning' : ''}.`);
+  }
+  const ex = garminOn() ? exertion(addDays(today, -1)) : null;
+  if (ex) L.push(`Yesterday's exertion ${ex.score}/100 (${ex.level.toLowerCase()})${ex.parts.length ? `: ${ex.parts.map((p) => `${p.name} ${p.mins} min${p.avgHR ? ` avg HR ${Math.round(p.avgHR)}` : ''}`).join(', ')}` : ''}${ex.steps ? `, ${fmtKg(ex.steps)} steps` : ''}.`);
+  const hb = habitsOn(addDays(today, -1)).map((id) => habitDefs().find((h) => h[0] === id)?.[1]).filter(Boolean);
+  if (hb.length) L.push(`Yesterday's habits: ${hb.join(', ')}.`);
+  const series = weightSeries(), last = series[series.length - 1], rate = weeklyRate(series);
+  if (last) L.push(`Weight trend ${fmt(round1(last.trend))} kg${rate != null ? ` (${rate <= 0 ? '−' : '+'}${fmt(Math.abs(round1(rate)))} kg/week)` : ''}.`);
+  const bc = bodyComp().pop();
+  if (bc) L.push(`Body fat ≈ ${fmt(bc.bf)}% (${bc.how}, ${fmtShort(bc.date)}), lean ≈ ${fmt(round1(bc.lean))} kg.`);
+  const r = plannedRoutine(today), done = state.history.some((h) => h.date === today);
+  L.push(done ? `Trained today: ${routineForDay(today)?.name || 'workout logged'}.` : r ? `Planned today: ${r.name} (${r.exerciseIds.map(exById).filter(Boolean).map((e) => e.name).join(', ')}).` : 'Rest day today.');
+  const t = targetsFor(today), foodLine = (d) => {
+    const tot = dayTotals(d), tt = targetsFor(d);
+    return `${fmtKg(tot.kcal)}/${tt ? fmtKg(tt.kcal) : '?'} kcal, protein ${fmtKg(tot.protein)}/${tt?.protein ?? '?'} g, carbs ${fmtKg(tot.carbs)} g, fat ${fmtKg(tot.fat)} g`;
+  };
+  if (scope === 'week') {
+    L.push('', 'Last 7 days:');
+    lastDays(7, today).forEach((d) => {
+      const ws = state.history.filter((h) => h.date === d), sc = garminOn() ? readinessScore(d)?.score : null;
+      L.push(`- ${fmtDay(d)}: ${dayEntries(d).length ? foodLine(d) : 'food not logged'}${ws.length ? ` · trained ${routineForDay(d)?.name || `${ws.length} exercises`}` : ''}${sc != null ? ` · readiness ${sc}` : ''}`);
+    });
+  } else {
+    L.push('', `Food today so far (targets ${t ? `${fmtKg(t.kcal)} kcal, ${t.protein} g protein, ${t.carbs} g carbs, ${t.fat} g fat${t.dayType ? `, ${t.dayType} day` : ''}` : 'not set'}): ${foodLine(today)}.`);
+    MEALS.forEach(([k, label]) => { const es = dayEntries(today).filter((e) => e.meal === k); if (es.length) L.push(`- ${label}: ${es.map((e) => `${e.name}${e.g ? ` ${fmt(e.g)} g` : ''} (${e.n.kcal} kcal, ${fmt(e.n.protein)} g P)`).join('; ')}`); });
+  }
+  L.push('', CLAUDE_FORMAT, '', 'My question: ');
+  return L.join('\n');
+}
+
+/** Pulls OVERLOAD … END blocks out of Claude's reply (tolerates code fences, bullets and units). */
+function parseClaude(text) {
+  const m = String(text || '').match(/OVERLOAD\s*\n([\s\S]*?)(?:\n\s*END\b|$)/i);
+  if (!m) return null;
+  const foods = [], notes = [];
+  const num = (s) => { const v = parseFloat(String(s || '').replace(/[^\d.]/g, '')); return Number.isFinite(v) ? v : 0; };
+  m[1].split('\n').map((l) => l.replace(/^[\s>*`-]+|`+$/g, '').trim()).filter(Boolean).forEach((line) => {
+    const p = line.split('|').map((x) => x.trim());
+    const kind = (p[0] || '').toLowerCase();
+    if (kind === 'food' && p.length >= 5) {
+      const meal = MEALS.find(([k, l]) => p[1].toLowerCase().startsWith(k.slice(0, 4)) || p[1].toLowerCase() === l.toLowerCase())?.[0] || mealForNow();
+      foods.push({ meal, name: p[2] || 'Food', g: num(p[3]), kcal: Math.round(num(p[4])), protein: num(p[5]), carbs: num(p[6]), fat: num(p[7]), on: true });
+    } else if (kind === 'note' && p[1]) notes.push(p.slice(1).join(' | '));
+  });
+  return foods.length || notes.length ? { foods, notes } : null;
+}
+function mealForNow() { const h = new Date().getHours(); return h < 11 ? 'breakfast' : h < 15 ? 'lunch' : h < 21 ? 'dinner' : 'snacks'; }
+
+function claudeModal() {
+  const m = modal;
+  if (m.step === 'paste') {
+    const p = m.parsed;
+    return `${modalHead('Paste from Claude', true)}
+      <p class="text-sm muted">Copy Claude’s whole reply, then tap the button. Or paste it into the box.</p>
+      <button class="btn-primary mt-3 w-full" data-action="claude-read">Paste from clipboard</button>
+      <textarea id="claude-text" class="input mt-3 h-28 text-sm" placeholder="…or paste here">${esc(m.text || '')}</textarea>
+      <button class="btn-ghost mt-2 w-full py-2.5 text-sm" data-action="claude-parse">Read pasted text</button>
+      ${m.error ? `<p class="mt-3 rounded-2xl bg-rose-500/10 p-3 text-sm">${m.error}</p>` : ''}
+      ${p ? `${p.foods.length ? `<p class="eyebrow mt-5">Foods to add · ${m.date === todayISO() ? 'today' : fmtDay(m.date)}</p>
+        <ul class="mt-1 divide-y divide-black/5 dark:divide-white/[0.06]">${p.foods.map((f, i) => `<li class="flex items-center gap-3 py-2.5">
+          <button class="grid h-6 w-6 shrink-0 place-items-center rounded-md border text-xs font-bold ${f.on ? 'border-transparent bg-emerald-600 text-white' : 'border-black/20 dark:border-white/20'}" data-action="claude-tick" data-i="${i}" aria-label="${f.on ? 'Don’t add' : 'Add'} ${esc(f.name)}">${f.on ? '✓' : ''}</button>
+          <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">${esc(f.name)}${f.g ? ` <span class="muted">${fmt(f.g)} g</span>` : ''}</p>
+            <p class="text-xs muted">${MEAL_LABEL[f.meal]} · ${f.kcal} kcal · P ${fmt(f.protein)} · C ${fmt(f.carbs)} · F ${fmt(f.fat)}</p></div></li>`).join('')}</ul>` : ''}
+        ${p.notes.length ? `<p class="eyebrow mt-4">Coach note</p><p class="mt-1 rounded-2xl bg-black/[0.04] p-3 text-sm dark:bg-white/[0.06]">${esc(p.notes.join(' '))}</p>` : ''}
+        <button class="btn-primary mt-4 w-full" data-action="claude-apply">${p.foods.filter((f) => f.on).length ? `Add ${p.foods.filter((f) => f.on).length} food${p.foods.filter((f) => f.on).length === 1 ? '' : 's'}${p.notes.length ? ' and save note' : ''}` : 'Save note'}</button>
+        <p class="mt-2 text-[11px] muted">Claude’s numbers are estimates, especially from photos. You can edit any food after adding it.</p>` : ''}`;
+  }
+  return `${modalHead('Ask Claude')}
+    <p class="text-sm muted">Free, using your own Claude. Copy a summary, paste it into your Claude training project with your question (and a meal photo if you like), then bring the answer back here.</p>
+    <div class="mt-4 grid grid-cols-2 gap-2">
+      <button class="btn-primary" data-action="claude-copy" data-scope="today">Copy today</button>
+      <button class="btn-ghost" data-action="claude-copy" data-scope="week">Copy this week</button>
+    </div>
+    <a class="btn-ghost mt-2 w-full" href="https://claude.ai/new" target="_blank" rel="noopener">Open Claude</a>
+    <button class="btn-ghost mt-2 w-full" data-action="claude-paste">Paste Claude’s reply</button>
+    <ol class="mt-5 list-decimal space-y-1.5 pl-5 text-[13px] muted">
+      <li><b>Copy today</b> (or this week) here.</li>
+      <li>In Claude, paste it and type your question after “My question:”. For a meal, attach a photo and say “log this as lunch”.</li>
+      <li>Claude ends its reply with a short <b>OVERLOAD … END</b> block. Copy the reply.</li>
+      <li>Come back and tap <b>Paste Claude’s reply</b>. You see the foods first and choose what to add.</li>
+    </ol>`;
+}
+
+function coachNoteHtml() {
+  const c = state.coach;
+  if (!c || daysBetween(c.date, todayISO()) > 2) return '';
+  return `<section class="card mt-3 border-emerald-500/30">
+    <div class="flex items-center justify-between gap-2"><p class="eyebrow">Coach note · ${c.date === todayISO() ? 'today' : fmtShort(c.date)}</p><button class="icon-btn -mr-2 h-8 w-8" data-action="coach-clear" aria-label="Dismiss">${ICON_X}</button></div>
+    <p class="mt-1 text-sm">${esc(c.text)}</p></section>`;
+}
+function askClaudeCard() {
+  return `<section class="card mt-3 flex items-center justify-between gap-3">
+    <div class="min-w-0"><p class="eyebrow">Ask Claude</p><p class="mt-1 text-[13px] muted">Questions, meal photos and coaching, free with your Claude. Answers come back into the app.</p></div>
+    <button class="btn-primary shrink-0 px-5 py-2.5" data-action="claude-open">Ask</button></section>`;
+}
+
 // ----- Detail screens (tap a metric) -----
 const METRICS = {
-  readiness: 'Readiness', sleep: 'Sleep', rhr: 'Resting heart rate', hrv: 'HRV', bb: 'Body Battery', stress: 'Stress', steps: 'Steps',
+  readiness: 'Readiness', exertion: 'Exertion', sleep: 'Sleep', rhr: 'Resting heart rate', hrv: 'HRV', bb: 'Body Battery', stress: 'Stress', steps: 'Steps',
 };
 function metricModal() {
   const k = modal.k, today = todayISO();
@@ -3109,6 +3350,14 @@ function metricModal() {
     body = `${t.stress != null ? big(Math.round(t.stress), '', t.stress <= 25 ? 'Low' : t.stress <= 50 ? 'Medium' : 'High') : '<p class="mt-3 text-sm muted">No stress number yet.</p>'}
       <p class="eyebrow mt-5">Last 2 weeks</p>${dayBars(s, { cls: 'text-amber-500 dark:text-amber-300', fmtV: (v) => Math.round(v) })}
       ${note('Garmin’s daily average stress (0–100), worked out from your heart rate and HRV. Training days read higher; a run of high days alongside poor sleep is a sign to ease off. It isn’t part of the readiness score.')}`;
+  } else if (k === 'exertion') {
+    const e = exertion(today) || exertion(addDays(today, -1)), s14 = lastDays(14, today).map((d) => ({ d, v: exertion(d)?.score ?? null }));
+    body = e ? `${big(e.score, '', `<span class="${EX_TONE[e.level]} font-medium">${e.level}</span>${exertion(today) ? '' : ' · yesterday'}`)}
+      <ul class="mt-3 divide-y divide-black/5 text-sm dark:divide-white/[0.06]">${e.parts.map((p) => `<li class="flex justify-between gap-2 py-2"><span>${esc(p.name)}</span><span class="tabular-nums muted">${p.mins} min${p.avgHR ? ` · avg HR ${Math.round(p.avgHR)}` : ''} · load ${Math.round(p.load)}</span></li>`).join('')}
+        ${e.steps ? `<li class="flex justify-between gap-2 py-2"><span>Steps</span><span class="tabular-nums muted">${fmtKg(e.steps)} · load ${Math.round(e.stepLoad)}</span></li>` : ''}</ul>`
+      : '<p class="mt-3 text-sm muted">No watch activity or steps yet.</p>';
+    body += `<p class="eyebrow mt-5">Last 2 weeks</p>${dayBars(s14, { colourOf: (v) => EX_TONE[v >= 60 ? 'Hard' : v >= 30 ? 'Moderate' : 'Light'], fmtV: (v) => v })}
+      ${note('Exertion is how hard your body worked, from your watch: minutes × how high your heart rate was compared with your resting and maximum heart rate (a standard “training load” formula), plus a little for steps. 0–29 light, 30–59 moderate, 60+ hard. Weights sessions often read “moderate” because heart rate drops between sets. That’s normal: it measures heart strain, not how heavy you lifted. Start a strength activity on the watch each session so it counts. It doesn’t change your food targets.')}`;
   } else if (k === 'steps') {
     const s = series('steps', 28), avg7 = mean(gSeries('steps', addDays(today, -1), 7));
     body = `${big(fmtKg(gDay(today).steps ?? 0), '', avg7 ? `7-day average ${fmtKg(avg7)}` : '')}
@@ -3267,7 +3516,7 @@ function weekStreak() {
 
 function statsView() {
   if (!state.history.length) {
-    return `<h2 class="mb-4 text-3xl">Stats</h2>` + journeyCard() + monthCard() + garminCard() + nutritionCard() + measuresCard() +
+    return `<h2 class="mb-4 text-3xl">Stats</h2>` + journeyCard() + monthCard() + garminCard() + nutritionCard() + measuresCard() + bodyCompCard() +
       emptyState('No workouts yet', 'Log your first workout and your progress, volume and records will show up here.', 'Start a workout', 'goto-today');
   }
   const thisWeek = weekStart(todayISO());
@@ -3429,7 +3678,8 @@ function nutritionCard() {
 }
 
 // ----- Body measurements -----
-const MEASURES = [['waist', 'Waist'], ['chest', 'Chest'], ['hips', 'Hips'], ['arms', 'Arms (flexed)'], ['thighs', 'Thighs'], ['neck', 'Neck']];
+const MEASURES = [['waist', 'Waist'], ['chest', 'Chest'], ['hips', 'Hips'], ['arms', 'Arms (flexed)'], ['thighs', 'Thighs'], ['neck', 'Neck'], ['bf', 'Body fat']];
+const mUnit = (k) => (k === 'bf' ? '%' : 'cm');
 
 function measureSeries(key) {
   return Object.keys(state.body.measures).sort().filter((d) => state.body.measures[d][key] > 0).map((d) => ({ date: d, v: state.body.measures[d][key] }));
@@ -3444,12 +3694,12 @@ function measuresCard() {
       <h3 class="font-semibold">Body measurements</h3>
       ${dates.length ? `<span class="text-xs muted">Last: ${fmtShort(dates[dates.length - 1])}</span>` : ''}
     </div>
-    ${rows.length ? `<ul class="mt-2 divide-y divide-slate-200 dark:divide-slate-800">${rows.map(({ label, series }) => {
+    ${rows.length ? `<ul class="mt-2 divide-y divide-slate-200 dark:divide-slate-800">${rows.map(({ key, label, series }) => {
       const last = series[series.length - 1], first = series[0];
       return `<li class="flex items-center justify-between gap-3 py-2">
         <span class="min-w-0"><span class="block text-sm font-medium">${label}</span>
-          <span class="text-xs muted">${series.length > 1 ? `${signed(last.v - first.v)} cm since ${fmtShort(first.date)}` : 'First entry'}</span></span>
-        <span class="flex items-center gap-3">${series.length > 1 ? sparkSvg(series.map((x) => x.v)) : ''}<b class="w-16 text-right tabular-nums">${fmt(last.v)} cm</b></span>
+          <span class="text-xs muted">${series.length > 1 ? `${signed(last.v - first.v)} ${mUnit(key)} since ${fmtShort(first.date)}` : 'First entry'}</span></span>
+        <span class="flex items-center gap-3">${series.length > 1 ? sparkSvg(series.map((x) => x.v)) : ''}<b class="w-16 text-right tabular-nums">${fmt(last.v)} ${mUnit(key)}</b></span>
       </li>`;
     }).join('')}</ul>`
       : '<p class="mt-1 text-sm muted">Track waist, chest, arms and more every couple of weeks. Useful when the scale barely moves but your shape is changing.</p>'}
@@ -3466,9 +3716,9 @@ function measuresModal() {
   return `${modalHead('Body measurements')}
     <form id="measure-form" class="space-y-3">
       <label class="block"><span class="label">Date</span><input class="input" type="date" name="date" value="${date}" max="${todayISO()}" data-action="measure-date"></label>
-      <div class="grid grid-cols-2 gap-3">${MEASURES.map(([key, label]) => `<label class="block"><span class="label">${label} (cm)</span>
+      <div class="grid grid-cols-2 gap-3">${MEASURES.map(([key, label], _i, _a, k = key) => `<label class="block"><span class="label">${label} (${k === 'bf' ? '% from a smart scale' : 'cm'})</span>
         <input class="input" type="number" inputmode="decimal" step="0.1" min="0" name="${key}" value="${cur[key] ?? ''}" placeholder="${prev[key] ? `last ${fmt(prev[key])}` : ''}"></label>`).join('')}</div>
-      <p class="text-xs muted">Measure first thing in the morning, tape snug but not tight, same spot each time. Leave any blank.</p>
+      <p class="text-xs muted">Measure first thing in the morning, tape snug but not tight, same spot each time. Leave any blank. Waist (at the belly button) + neck give a body fat estimate in Stats.</p>
       <button type="submit" class="btn-primary w-full">Save</button>
     </form>
     ${dates.length ? `<p class="label mt-5">History</p><ul class="divide-y divide-slate-200 dark:divide-slate-800">${dates.map((d) => `<li class="flex items-center justify-between gap-2 py-1.5 text-sm">
@@ -3790,7 +4040,7 @@ function renderModal() {
   if (!(modal?.type === 'food' && modal.step === 'scan')) stopScanner();
   if (!modal) { box.classList.add('hidden'); box.classList.remove('flex'); return; }
   if (modal.type === 'food' && modal.step === 'scan' && scanner) return; // keep the live camera view
-  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, metric: metricModal, garmin: garminModal }[modal.type];
+  const body = { day: () => dayModal(modal.date), summary: summaryModal, swap: swapModal, library: libraryModal, food: foodModal, 'food-setup': foodSetupModal, weight: weightModal, measures: measuresModal, plates: platesModal, 'prog-setup': progSetupModal, 'prog-checkin': progCheckinModal, 'prog-review': progReviewModal, 'prog-main': progMainModal, journey: journeyModal, 'macro-calc': macroCalcModal, breakdown: breakdownModal, metric: metricModal, claude: claudeModal, garmin: garminModal }[modal.type];
   document.getElementById('modal-body').innerHTML = body();
   document.querySelector('#modal-body [data-sel]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   box.classList.remove('hidden'); box.classList.add('flex');
@@ -4474,6 +4724,7 @@ function foodView() {
   html += ideasCard(dayTotals(foodDate), tf);
   html += waterCard() + weightCard();
   html += `<div class="mt-2 grid grid-cols-2 gap-2"><button class="btn-ghost" data-food="setup">Targets &amp; profile</button><button class="btn-ghost" data-food="calc-open">Macro calculator</button></div>
+    <button class="btn-ghost mt-2 w-full" data-action="claude-open">Ask Claude · log a meal from a photo</button>
   <p class="mt-4 text-center text-[11px] leading-relaxed muted">Product data © <a class="underline" href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> contributors (ODbL).
   UK reference data: McCance and Widdowson’s Composition of Foods Integrated Dataset, Office for Health Improvement and Disparities (Open Government Licence).</p>`;
   return html;
@@ -5793,6 +6044,47 @@ document.addEventListener('click', (e) => {
     case 'goto-exercises': view = 'exercises'; render(); return;
     case 'goto-today': view = 'today'; render(); return;
     case 'metric': modal = { type: 'metric', k: btn.dataset.k }; renderModal(); return;
+    case 'habit-day': habitDay = btn.dataset.date === todayISO() ? null : btn.dataset.date; render(); return;
+    case 'habit-toggle': {
+      const d = btn.dataset.date, list = new Set(habitsOn(d));
+      list.has(btn.dataset.id) ? list.delete(btn.dataset.id) : list.add(btn.dataset.id);
+      state.habits.log[d] = [...list]; // an empty list still means "filled in, none of these"
+      saveState(); render(); return;
+    }
+    case 'habit-add': {
+      const name = (prompt('New habit to track (e.g. Late workout, Melatonin)') || '').trim().slice(0, 30);
+      if (!name) return;
+      state.habits.custom.push({ id: `h:${uid()}`, name }); saveState(); render(); return;
+    }
+    case 'claude-open': modal = { type: 'claude', step: 'menu' }; renderModal(); return;
+    case 'claude-copy': {
+      const txt = claudeSummary(btn.dataset.scope);
+      navigator.clipboard?.writeText(txt).then(() => toast('Copied. Paste it into Claude'), () => toast('Couldn’t copy: try again'));
+      return;
+    }
+    case 'claude-paste': modal = { type: 'claude', step: 'paste', date: foodDate && view === 'food' ? foodDate : todayISO() }; renderModal(); return;
+    case 'claude-read':
+      (navigator.clipboard?.readText ? navigator.clipboard.readText() : Promise.reject()).then((t) => {
+        Object.assign(modal, { text: t, parsed: parseClaude(t), error: parseClaude(t) ? '' : 'No OVERLOAD … END block found in what you copied. Copy Claude’s whole reply (or ask it to “add the OVERLOAD block”).' }); renderModal();
+      }, () => { modal.error = 'Couldn’t read the clipboard. Paste into the box instead.'; renderModal(); });
+      return;
+    case 'claude-parse': {
+      const t = document.getElementById('claude-text')?.value || '';
+      Object.assign(modal, { text: t, parsed: parseClaude(t), error: parseClaude(t) ? '' : 'No OVERLOAD … END block found. Paste Claude’s whole reply.' }); renderModal(); return;
+    }
+    case 'claude-tick': { const f = modal.parsed.foods[Number(btn.dataset.i)]; f.on = !f.on; renderModal(); return; }
+    case 'claude-apply': {
+      const p = modal.parsed, d = modal.date, add = p.foods.filter((f) => f.on);
+      add.forEach((f) => {
+        const n = { ...Object.fromEntries(NKEYS.map((k) => [k, 0])), kcal: f.kcal, protein: round1(f.protein), carbs: round1(f.carbs), fat: round1(f.fat) };
+        (state.food.log[d] ||= []).push({ id: uid(), foodId: null, name: `${f.name}${f.g ? ` (~${fmt(f.g)} g)` : ''}`, meal: f.meal, qty: 1, unit: '', g: 0, n, ts: Date.now(), src: 'claude' });
+      });
+      if (p.notes.length) state.coach = { text: p.notes.join(' '), date: todayISO() };
+      modal = null; saveState(); render();
+      toast(add.length ? `Added ${add.length} food${add.length === 1 ? '' : 's'}${p.notes.length ? ' and saved the note' : ''}` : 'Note saved');
+      return;
+    }
+    case 'coach-clear': state.coach = null; saveState(); render(); return;
     case 'dash-breakdown': modal = { type: 'breakdown', date: todayISO(), k: btn.dataset.k }; renderModal(); return;
     case 'toggle-theme': { // Auto (matches the iPhone) → Light → Dark → Auto
       const now = lsGet('pot.theme'), next = now === null ? 'light' : now === 'light' ? 'dark' : null;
