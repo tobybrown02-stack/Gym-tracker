@@ -593,4 +593,6 @@ accent, fun money pink, pots amber; tally-mark icon (PIL).
   first guide hard to follow in the updated Shortcuts app, so the in-app guide
   (`applePaySteps()`) is now tap-by-tap: a one-action setup (Append to Text
   File) + import via the Files picker, with the clipboard actions optional.
+  In the owner's iOS the trigger is **Apps → Wallet** ("When I tap a Wallet
+  Card or Pass"), not "Transaction".
 - Backup (JSON via share sheet), restore, CSV export.
