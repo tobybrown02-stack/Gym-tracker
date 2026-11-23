@@ -594,5 +594,9 @@ accent, fun money pink, pots amber; tally-mark icon (PIL).
   (`applePaySteps()`) is now tap-by-tap: a one-action setup (Append to Text
   File) + import via the Files picker, with the clipboard actions optional.
   In the owner's iOS the trigger is **Apps → Wallet** ("When I tap a Wallet
-  Card or Pass"), not "Transaction".
+  Card or Pass"), not "Transaction". Variables come from the bar above the
+  keyboard (scroll it: Current Date, then **Transaction** → Amount, Merchant,
+  Card or Pass). The file didn't appear until the owner ran the automation
+  once with ▶ (folder permission prompt); now in the guide. Set up and the
+  file found on 24 Nov 2026; a real tap-to-pay import not yet confirmed.
 - Backup (JSON via share sheet), restore, CSV export.
