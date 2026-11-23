@@ -69,6 +69,7 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  if (url.origin === location.origin && url.pathname.startsWith(scopePath + 'budget/')) return; // the Tally budget app has its own worker
   if (isPage(req, url)) return event.respondWith(networkFirstPage(req));
   if (url.origin === location.origin && url.pathname.includes('/garmin-data/')) return; // always fresh from the network
   if (url.origin === location.origin && url.pathname.includes('/food-data/')) return event.respondWith(staleWhileRevalidate(req, event));

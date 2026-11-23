@@ -559,3 +559,35 @@ Not possible or advised against:
 - Push notifications — need a server; not possible for free here.
 - Progress photos stored in the app — would blow the ~5 MB storage and
   backups; the owner keeps them in the Photos app.
+
+## Tally budget app (`budget/`, Nov 2026)
+
+A separate app for the owner's money, at
+https://tobybrown02-stack.github.io/Gym-tracker/budget/ (own Home Screen icon,
+own `sw.js` scoped to `budget/`, own manifest/icons; the gym `sw.js` ignores
+`/budget/`). Same rules: free, static, no build, plain CSS (no Tailwind),
+data in `localStorage['tally.v1']`; new fields go in `seedState()` and
+`migrate()`. Own look (owner asked): off-white / near-black, periwinkle
+accent, fun money pink, pots amber; tally-mark icon (PIL).
+- Owner's budget is copied from their Google Sheet (Nov 26 column): salary
+  £2,264 into Nationwide; lines have account + type (income, fixed, variable
+  "Everyday", fun, sinking "Pots", savings). Payday transfers match the sheet
+  (Revolut £1,242.73, Joint £629, leave £392.27). Car insurance → £0 from the
+  Jan 27 pay month. **Fun money = whatever's left** (`settings.funAuto`), split
+  into fun categories (Eating out, Takeaway, …) for reporting.
+- **Pay month** = 24th to 23rd, moved to the last working day before if the
+  24th is a weekend or England & Wales bank holiday (`payday()`); period key
+  'YYYY-MM' of the month payday falls in; label "Nov 26".
+- Budgets: `line.amts = [{from: period, v}]` ("from this pay month on") +
+  `overrides[period][lineId]` ("this pay month only").
+- Lines with `auto` are logged on payday (`runAuto`, once per period via
+  `autoDone`, from `settings.startPeriod`). Pots: balance = start + monthly
+  amount − spending; savings: start + transfers.
+- **Apple Pay capture**: iOS Shortcuts Transaction automation appends
+  `TALLY;date;amount;merchant;card` to `Shortcuts/Tally inbox.txt` and copies
+  the whole file to the clipboard (Home Screen web apps can't be opened by a
+  URL from Shortcuts). "Get Apple Pay purchases" reads the clipboard (or the
+  file / a paste box); lines are de-duplicated by hash (`seen`), cards map to
+  accounts (`cards`), payees learn their category (`rules`), unknown ones go
+  to "To sort". Not yet confirmed on the owner's phone.
+- Backup (JSON via share sheet), restore, CSV export.
