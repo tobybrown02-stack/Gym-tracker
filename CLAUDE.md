@@ -589,5 +589,8 @@ accent, fun money pink, pots amber; tally-mark icon (PIL).
   URL from Shortcuts). "Get Apple Pay purchases" reads the clipboard (or the
   file / a paste box); lines are de-duplicated by hash (`seen`), cards map to
   accounts (`cards`), payees learn their category (`rules`), unknown ones go
-  to "To sort". Not yet confirmed on the owner's phone.
+  to "To sort". Not yet confirmed on the owner's phone. The owner found the
+  first guide hard to follow in the updated Shortcuts app, so the in-app guide
+  (`applePaySteps()`) is now tap-by-tap: a one-action setup (Append to Text
+  File) + import via the Files picker, with the clipboard actions optional.
 - Backup (JSON via share sheet), restore, CSV export.

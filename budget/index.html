@@ -200,7 +200,7 @@
   .bars6 small { font-size: 11px; color: var(--muted); }
   .steps { margin: 0; padding-left: 22px; }
   .steps li { margin: 0 0 10px; }
-  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--bar); padding: 1px 5px; border-radius: 6px; word-break: break-all; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--bar); padding: 1px 5px; border-radius: 6px; white-space: nowrap; }
   .codebox { font-family: ui-monospace, Menlo, monospace; font-size: 13px; background: var(--bar); padding: 10px 12px; border-radius: 12px; word-break: break-all; margin: 6px 0; }
   .toast {
     position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
@@ -755,16 +755,31 @@ function moreView() {
   return `<div class="wrap">${h}</div>`;
 }
 function applePaySteps() {
-  return `<ol class="steps">
-    <li>Open the <b>Shortcuts</b> app → <b>Automation</b> → <b>+</b> → <b>Transaction</b>.</li>
-    <li>Choose all your cards, pick <b>Run Immediately</b>, then <b>Next</b> → <b>New Blank Automation</b>.</li>
-    <li>Add the action <b>Append to Text File</b>. In its text box type <code>TALLY;</code> then add these, with a <code>;</code> between each:
-      <b>Current Date</b>, Shortcut Input → <b>Amount</b>, Shortcut Input → <b>Merchant</b>, Shortcut Input → <b>Card</b> (it may be called <i>Card or Pass</i> or <i>Name</i>). It should look like:
-      <div class="codebox">TALLY;Current Date;Amount;Merchant;Card</div>
-      Set the file to <code>Tally inbox.txt</code> and turn on <b>Make New Line</b>.</li>
-    <li>Add <b>Get File</b> (from the Shortcuts folder, file <code>Tally inbox.txt</code>), then <b>Get Text from Input</b>, then <b>Copy to Clipboard</b>.</li>
-    <li>Done. After paying, open Tally and tap <b>Get Apple Pay purchases</b> (tap <b>Paste</b> if your iPhone asks). If the clipboard was replaced, choose the <b>Tally inbox</b> file from Files instead: nothing gets added twice.</li>
-  </ol>`;
+  return `<p style="margin:0 0 8px"><b>Part 1: make the automation</b></p>
+  <ol class="steps">
+    <li>Open <b>Shortcuts</b> and tap <b>Automation</b> at the bottom.</li>
+    <li>Tap <b>+</b> (top right; or <b>New Automation</b> if you have none yet). Scroll down and tap <b>Transaction</b>.</li>
+    <li>Leave <b>Cards</b> on all your cards, and Categories and Merchants on Any. Pick <b>Run Immediately</b>, then <b>Next</b>.</li>
+    <li>Tap <b>Create New Shortcut</b> (or <b>New Blank Automation</b>).</li>
+  </ol>
+  <p style="margin:12px 0 8px"><b>Part 2: one action</b></p>
+  <ol class="steps">
+    <li>Tap <b>Search Actions</b>, type <code>append</code> and tap <b>Append to Text File</b>.</li>
+    <li>Tap the blue <b>Text</b> word and type <code>TALLY;</code></li>
+    <li>Above the keyboard, tap <b>Current Date</b>. Type <code>;</code></li>
+    <li>Tap <b>Shortcut Input</b>, then tap the blue <b>Shortcut Input</b> bubble and choose <b>Amount</b>. Type <code>;</code></li>
+    <li>Do the same again, choosing <b>Merchant</b>. Type <code>;</code></li>
+    <li>Once more, choosing the card (<b>Card or Pass</b>, or <b>Name</b>).</li>
+    <li>It should read:<div class="codebox">TALLY;Current Date;Amount;Merchant;Card or Pass</div></li>
+    <li>Tap the file name and type <code>Tally inbox.txt</code>. Tap the small arrow on the action and turn on <b>Make New Line</b>. Tap <b>Done</b>.</li>
+  </ol>
+  <p style="margin:12px 0 8px"><b>Part 3: getting them into Tally</b></p>
+  <ol class="steps">
+    <li>Pay for something with Apple Pay.</li>
+    <li>In Tally tap <b>Get Apple Pay purchases</b> → <b>Choose “Tally inbox” from Files</b> → <b>Recents</b> (or iCloud Drive → Shortcuts) → <b>Tally inbox</b>. Nothing gets added twice, so pick the same file every time.</li>
+  </ol>
+  <details style="margin-top:6px"><summary class="muted" style="padding:6px 0">Optional: skip the Files step</summary>
+  <p style="margin:6px 0">Add three more actions under the first, in this order: <b>Get File</b> (file path <code>Tally inbox.txt</code>; turn off “Show Document Picker”), <b>Get Text from Input</b>, <b>Copy to Clipboard</b>. Then the button reads the clipboard straight away (tap <b>Paste</b> if asked).</p></details>`;
 }
 
 /* ---------- Sheets ---------- */
@@ -836,7 +851,7 @@ function sortSheet(s) {
 }
 function importSheet() {
   return `${sheetHead('Get Apple Pay purchases')}
-    <p style="margin:4px 4px 12px">Your iPhone didn’t let Tally read the clipboard. Choose one:</p>
+    <p style="margin:4px 4px 12px">Pick the file your Apple Pay automation writes to:</p>
     <button class="btn primary" data-act="pickfile" data-kind="inbox">Choose “Tally inbox” from Files</button>
     <p class="muted" style="font-size:13px;margin:8px 4px 0">It’s in iCloud Drive → Shortcuts.</p>
     <label class="lab">Or paste it here</label>
