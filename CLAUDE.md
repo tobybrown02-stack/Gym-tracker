@@ -600,3 +600,39 @@ accent, fun money pink, pots amber; tally-mark icon (PIL).
   once with ▶ (folder permission prompt); now in the guide. Set up and the
   file found on 24 Nov 2026; a real tap-to-pay import not yet confirmed.
 - Backup (JSON via share sheet), restore, CSV export.
+- **Added 24 Nov 2026 (owner picked 1, 2, 3, 5 of 5 offered; debt countdown
+  not chosen):**
+  - **Pot targets**: `line.goal = {amt, date}` on sinking lines (seeded dates:
+    car insurance renewal 24 Jan 2027, home insurance 26 Sep 2027; amounts
+    left for the owner). `potGoal()` projects balance + monthly amounts to
+    the date → "On track" / "£x short · needs £y a month" (Home pots, cat
+    sheet). Editable in the line sheet (Target, Needed by).
+  - **Pay month review** (`reviewSheet`, `needsReview()`: Home banner for the
+    previous pay month within 14 days of payday until reviewed; Budget tab
+    button for past months): plan vs actual for Everyday + Fun, fun
+    breakdown, bills/savings that differed, pot balances, then "Move what's
+    left" → a `src:'sweep'` txn (`sweep-<period>`, dated the last day: +amt
+    on a savings line, −amt on a pot) and `S.reviewed[p] = {at, moved, to}`.
+  - **Bank statement CSV import** (Spending tab / Settings / review →
+    `bankPrepare()`): generic CSV parser + header detection (Revolut
+    `Type,Product,Started Date,…,Amount,Fee,Currency,State`; Nationwide
+    `Date,Transaction type,Description,Paid out,Paid in,Balance` with
+    preamble, Windows-1252 £ handled; Monzo-ish). Rows are matched against
+    existing txns (same amount, −2…+6 days; payday auto entries: same pay
+    month and same account) → "Already in Tally"; transfers (Revolut
+    TRANSFER/TOPUP/EXCHANGE, pocket/vault/top-up, own account names) and
+    money-in are unticked; new ones ticked, categorised by `ruleFor()` (fuzzy
+    payee rules), rest go to "To sort". Preview with ticks before adding
+    (`src:'bank'`, ids `bk-<hash>` in `seen`). Excel (.xlsx) files are refused
+    with a "download CSV" message. Real exports not yet seen: if the
+    owner's files don't parse, ask for the header row.
+  - **Subscriptions list** (`S.subs = [{id,name,amt,cycle,renew}]`, seeded
+    from the sheet: Amazon Prime, Game Pass, Foodtracker, Gmail storage,
+    iCloud+, Claude, Hevy, no prices): the Subscriptions line (`isSubs`)
+    follows the total (yearly ÷ 12) only once **every** item has a price
+    (`subsLinked()`, toggle `settings.subsLink`), else its own amount.
+    "Renewing soon" on Home (next 7 days, `nextRenew()`).
+  - **Reminders**: Settings explains two Shortcuts "Time of Day"
+    automations with Show Notification: daily evening (log spends) and
+    monthly on the 23rd (bank statements). Nothing in the app sends them.
+  - `S.mig.v2` adds goals/`isSubs` to existing data.
