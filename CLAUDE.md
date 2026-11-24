@@ -560,79 +560,54 @@ Not possible or advised against:
 - Progress photos stored in the app — would blow the ~5 MB storage and
   backups; the owner keeps them in the Photos app.
 
-## Tally budget app (`budget/`, Nov 2026)
+## Tally fun money tracker (`budget/`, Nov 2026)
 
-A separate app for the owner's money, at
-https://tobybrown02-stack.github.io/Gym-tracker/budget/ (own Home Screen icon,
-own `sw.js` scoped to `budget/`, own manifest/icons; the gym `sw.js` ignores
-`/budget/`). Same rules: free, static, no build, plain CSS (no Tailwind),
-data in `localStorage['tally.v1']`; new fields go in `seedState()` and
-`migrate()`. Own look (owner asked): off-white / near-black, periwinkle
-accent, fun money pink, pots amber; tally-mark icon (PIL).
-- Owner's budget is copied from their Google Sheet (Nov 26 column): salary
-  £2,264 into Nationwide; lines have account + type (income, fixed, variable
-  "Everyday", fun, sinking "Pots", savings). Payday transfers match the sheet
-  (Revolut £1,242.73, Joint £629, leave £392.27). Car insurance → £0 from the
-  Jan 27 pay month. **Fun money = whatever's left** (`settings.funAuto`), split
-  into fun categories (Eating out, Takeaway, …) for reporting.
-- **Pay month** = 24th to 23rd, moved to the last working day before if the
-  24th is a weekend or England & Wales bank holiday (`payday()`); period key
-  'YYYY-MM' of the month payday falls in; label "Nov 26".
-- Budgets: `line.amts = [{from: period, v}]` ("from this pay month on") +
-  `overrides[period][lineId]` ("this pay month only").
-- Lines with `auto` are logged on payday (`runAuto`, once per period via
-  `autoDone`, from `settings.startPeriod`). Pots: balance = start + monthly
-  amount − spending; savings: start + transfers.
-- **Apple Pay capture**: iOS Shortcuts Transaction automation appends
-  `TALLY;date;amount;merchant;card` to `Shortcuts/Tally inbox.txt` and copies
-  the whole file to the clipboard (Home Screen web apps can't be opened by a
-  URL from Shortcuts). "Get Apple Pay purchases" reads the clipboard (or the
-  file / a paste box); lines are de-duplicated by hash (`seen`), cards map to
-  accounts (`cards`), payees learn their category (`rules`), unknown ones go
-  to "To sort". Not yet confirmed on the owner's phone. The owner found the
-  first guide hard to follow in the updated Shortcuts app, so the in-app guide
-  (`applePaySteps()`) is now tap-by-tap: a one-action setup (Append to Text
-  File) + import via the Files picker, with the clipboard actions optional.
-  In the owner's iOS the trigger is **Apps → Wallet** ("When I tap a Wallet
-  Card or Pass"), not "Transaction". Variables come from the bar above the
-  keyboard (scroll it: Current Date, then **Transaction** → Amount, Merchant,
-  Card or Pass). The file didn't appear until the owner ran the automation
-  once with ▶ (folder permission prompt); now in the guide. Set up and the
-  file found on 24 Nov 2026; a real tap-to-pay import not yet confirmed.
-- Backup (JSON via share sheet), restore, CSV export.
-- **Added 24 Nov 2026 (owner picked 1, 2, 3, 5 of 5 offered; debt countdown
-  not chosen):**
-  - **Pot targets**: `line.goal = {amt, date}` on sinking lines (seeded dates:
-    car insurance renewal 24 Jan 2027, home insurance 26 Sep 2027; amounts
-    left for the owner). `potGoal()` projects balance + monthly amounts to
-    the date → "On track" / "£x short · needs £y a month" (Home pots, cat
-    sheet). Editable in the line sheet (Target, Needed by).
-  - **Pay month review** (`reviewSheet`, `needsReview()`: Home banner for the
-    previous pay month within 14 days of payday until reviewed; Budget tab
-    button for past months): plan vs actual for Everyday + Fun, fun
-    breakdown, bills/savings that differed, pot balances, then "Move what's
-    left" → a `src:'sweep'` txn (`sweep-<period>`, dated the last day: +amt
-    on a savings line, −amt on a pot) and `S.reviewed[p] = {at, moved, to}`.
-  - **Bank statement CSV import** (Spending tab / Settings / review →
-    `bankPrepare()`): generic CSV parser + header detection (Revolut
-    `Type,Product,Started Date,…,Amount,Fee,Currency,State`; Nationwide
-    `Date,Transaction type,Description,Paid out,Paid in,Balance` with
-    preamble, Windows-1252 £ handled; Monzo-ish). Rows are matched against
-    existing txns (same amount, −2…+6 days; payday auto entries: same pay
-    month and same account) → "Already in Tally"; transfers (Revolut
-    TRANSFER/TOPUP/EXCHANGE, pocket/vault/top-up, own account names) and
-    money-in are unticked; new ones ticked, categorised by `ruleFor()` (fuzzy
-    payee rules), rest go to "To sort". Preview with ticks before adding
-    (`src:'bank'`, ids `bk-<hash>` in `seen`). Excel (.xlsx) files are refused
-    with a "download CSV" message. Real exports not yet seen: if the
-    owner's files don't parse, ask for the header row.
-  - **Subscriptions list** (`S.subs = [{id,name,amt,cycle,renew}]`, seeded
-    from the sheet: Amazon Prime, Game Pass, Foodtracker, Gmail storage,
-    iCloud+, Claude, Hevy, no prices): the Subscriptions line (`isSubs`)
-    follows the total (yearly ÷ 12) only once **every** item has a price
-    (`subsLinked()`, toggle `settings.subsLink`), else its own amount.
-    "Renewing soon" on Home (next 7 days, `nextRenew()`).
-  - **Reminders**: Settings explains two Shortcuts "Time of Day"
-    automations with Show Notification: daily evening (log spends) and
-    monthly on the 23rd (bank statements). Nothing in the app sends them.
-  - `S.mig.v2` adds goals/`isSubs` to existing data.
+Started (23–24 Nov 2026) as a full pay-month budget app copied from the
+owner's Google Sheet (budget lines, payday auto-logging, pots with targets,
+pay month review, bank CSV import, subscriptions list). The owner then found
+it "all over the place and overwhelming" and chose to make it **just a fun
+money tracker**; the Google Sheet stays their budget. That full version is
+in git history (commit before "Tally: simplify to fun money only") if ever
+wanted again. Don't re-add budget features unless asked.
+
+At https://tobybrown02-stack.github.io/Gym-tracker/budget/ (own Home Screen
+icon, own `sw.js` scoped to `budget/`, own manifest/icons; the gym `sw.js`
+ignores `/budget/`). Free, static, no build, plain CSS (no Tailwind), data in
+`localStorage['tally.v1']`; new fields go in `seedState()` and `migrate()`.
+Own look: off-white / near-black, periwinkle accent, tally-mark icon (PIL).
+- **Pay month** = 24th to 23rd, moved to the last working day before for
+  weekends / England & Wales bank holidays (`payday()`); key 'YYYY-MM' of
+  the month payday falls in; label "Nov 26".
+- **Fun money amount** is typed on payday: `S.allow[period]`; Home shows a
+  "Payday! How much fun money" card (prefilled with last month's amount, or
+  `funHint` 200.74 for migrated data) until set. Jan 27 onwards the owner's
+  sheet has £249.71 (car insurance payments end).
+- Purchases: `{id, d, t, amt (refund < 0), payee, fun, skip, card, note,
+  src}`. Fun money = `t.fun` (category id); `t.skip` = "Not fun money"
+  (hidden in a collapsed list on Spending); neither = "To sort". Categories
+  (owner's): Eating out, Takeaway, Drinks & socialising, Clothes, Tech &
+  gadgets, Hobbies, Entertainment, Books & media, Other (editable).
+- Home: fun money left + £/day to payday, one task card (to sort, else Get
+  Apple Pay purchases), "Where it's gone" by category, 4 recent. Tabs: Home,
+  Spending, +, Settings.
+- **Apple Pay capture**: Shortcuts automation **Apps → Wallet** ("When I tap a
+  Wallet Card or Pass", Automation on, Notify off) → **Append to Text File**
+  `TALLY;Current Date;Amount;Merchant;Card or Pass` (variables from the bar
+  above the keyboard: Current Date, then Transaction → property) to
+  `Tally inbox.txt` in the Shortcuts folder, Make New Line on; run once with
+  ▶ to grant folder access (the file didn't appear until then). "Get Apple
+  Pay purchases" tries the clipboard, else the Files picker / paste box.
+  Lines de-duplicated by hash (`seen`); shops learn 'fun:<id>' or 'skip'
+  (`rules`, fuzzy `ruleFor()`). Owner set this up 24 Nov 2026.
+- **Send to my budget** (Spending tab → `exportSheet`): totals by category,
+  "Copy for Google Sheets" (tab-separated rows: Date, Where, Category,
+  Amount, then category totals, total, fun money, left over; pastes into
+  cells) or a CSV file via the share sheet.
+- Settings: fun money amount, categories, "How to" sheets (Apple Pay setup;
+  reminders = two Shortcuts Time of Day automations with Show Notification:
+  daily evening, and monthly on the 23rd to send fun money to the budget),
+  pay day, look, backup/restore/erase.
+- `migrate()` `mig.v3` converts the full-budget data: fun-line purchases keep
+  their category, other categorised ones become skip, payday auto/sweep
+  entries are dropped, non-fun rules become 'skip'. Old keys (lines,
+  overrides, subs…) are left in storage unused.
